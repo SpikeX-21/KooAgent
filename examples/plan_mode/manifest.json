@@ -11,12 +11,11 @@
     "zh": "为聊天注入计划模式开关、PLAN.md 计划协作工具，以及 <plantodo> 计划渲染与一键开始实施流程。",
     "en": "Adds a planning-mode toggle, PLAN.md collaboration tools, and <plantodo> rendering with one-tap implementation handoff."
   },
-  "enabled_by_default": false,
+  "enabled_by_default": true,
   "subpackages": [
     {
       "id": "plan_mode_tools",
       "entry": "dist/packages/plan_mode_tools.js",
-      "enabled_by_default": true,
       "display_name": {
         "zh": "计划模式工具",
         "en": "Plan Mode Tools"

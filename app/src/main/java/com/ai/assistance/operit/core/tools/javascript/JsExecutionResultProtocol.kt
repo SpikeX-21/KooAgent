@@ -20,3 +20,14 @@ internal fun extractJsExecutionErrorMessage(raw: Any?): String? {
     }
     return parsed.optString("message").trim().ifEmpty { null }
 }
+
+internal fun decodeJsExecutionResultValue(raw: Any?): Any? {
+    if (raw !is String) {
+        return raw
+    }
+    val text = raw.trim()
+    if (text.isEmpty()) {
+        return JSONObject.NULL
+    }
+    return JSONTokener(text).nextValue()
+}

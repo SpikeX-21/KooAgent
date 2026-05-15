@@ -3,12 +3,11 @@ package com.ai.assistance.operit.ui.common.markdown
 import android.graphics.Canvas
 import android.graphics.Paint
 import android.graphics.Typeface
+import android.text.StaticLayout
 import android.text.SpannableStringBuilder
 import android.text.Spanned
-import android.text.TextPaint
 import android.text.style.ForegroundColorSpan
 import android.text.style.ImageSpan
-import android.text.style.LineBackgroundSpan
 import android.text.style.MetricAffectingSpan
 import android.text.style.StrikethroughSpan
 import android.text.style.StyleSpan
@@ -59,109 +58,107 @@ private fun inlineCodeBackgroundColor(textColor: Color): Int {
 private class InlineCodeStyleSpan(
     private val textScale: Float,
 ) : MetricAffectingSpan() {
-    override fun updateDrawState(textPaint: TextPaint) {
-        applyInlineCodeStyle(textPaint)
+    override fun updateDrawState(textPaint: android.text.TextPaint) {
+        applyStyle(textPaint)
     }
 
-    override fun updateMeasureState(textPaint: TextPaint) {
-        applyInlineCodeStyle(textPaint)
+    override fun updateMeasureState(textPaint: android.text.TextPaint) {
+        applyStyle(textPaint)
     }
 
-    private fun applyInlineCodeStyle(textPaint: TextPaint) {
+    private fun applyStyle(textPaint: android.text.TextPaint) {
         textPaint.typeface = getMarkdownCodeTypeface()
         textPaint.textSize = textPaint.textSize * textScale
         textPaint.isAntiAlias = true
     }
 }
 
-private class InlineCodeBackgroundSpan(
-    private val backgroundColor: Int,
-    private val textScale: Float,
-    private val horizontalPaddingPx: Float,
-    private val verticalInsetPx: Float,
-    private val cornerRadiusPx: Float,
-) : LineBackgroundSpan {
-    override fun drawBackground(
-        canvas: Canvas,
-        paint: Paint,
-        left: Int,
-        right: Int,
-        top: Int,
-        baseline: Int,
-        bottom: Int,
-        text: CharSequence,
-        start: Int,
-        end: Int,
-        lineNumber: Int
-    ) {
-        val spanned = text as? Spanned ?: return
-        val spanStart = spanned.getSpanStart(this)
-        val spanEnd = spanned.getSpanEnd(this)
-        if (spanStart < 0 || spanEnd <= spanStart) return
-
-        val segmentStart = maxOf(start, spanStart)
-        val segmentEnd = minOf(end, spanEnd)
-        if (segmentStart >= segmentEnd) return
-
-        val basePaint =
-            TextPaint(paint).apply {
-                isAntiAlias = true
-            }
-        val codePaint =
-            TextPaint(basePaint).apply {
-                typeface = getMarkdownCodeTypeface()
-                textSize = basePaint.textSize * textScale
-            }
-
-        val prefixWidth =
-            if (segmentStart > start) {
-                basePaint.measureText(text, start, segmentStart)
-            } else {
-                0f
-            }
-        val segmentWidth = codePaint.measureText(text, segmentStart, segmentEnd)
-        val lineLeft = left.toFloat()
-        val lineRight = right.toFloat()
-        val segmentLeft = lineLeft + prefixWidth
-        val backgroundLeft = (segmentLeft - horizontalPaddingPx).coerceAtLeast(lineLeft)
-        val backgroundRight =
-            (segmentLeft + segmentWidth + horizontalPaddingPx).coerceAtMost(lineRight)
-        if (backgroundRight <= backgroundLeft) return
-
-        val previousColor = paint.color
-        val previousStyle = paint.style
-        paint.color = backgroundColor
-        paint.style = Paint.Style.FILL
-        canvas.drawRoundRect(
-            backgroundLeft,
-            top + verticalInsetPx,
-            backgroundRight,
-            bottom - verticalInsetPx,
-            cornerRadiusPx,
-            cornerRadiusPx,
-            paint
-        )
-        paint.color = previousColor
-        paint.style = previousStyle
-    }
-}
+private data class InlineCodeMarkerSpan(
+    val backgroundColor: Int,
+    val textScale: Float,
+    val horizontalPaddingPx: Float,
+    val verticalInsetPx: Float,
+    val cornerRadiusPx: Float,
+)
 
 private fun createInlineCodeStyleSpan(): InlineCodeStyleSpan {
     return InlineCodeStyleSpan(textScale = 0.9f)
 }
 
-private fun createInlineCodeBackgroundSpan(
+private fun createInlineCodeMarkerSpan(
     textColor: Color,
     density: Density?
-): InlineCodeBackgroundSpan {
+): InlineCodeMarkerSpan {
     val densityScale = density?.density ?: 1f
-    return InlineCodeBackgroundSpan(
+    return InlineCodeMarkerSpan(
         backgroundColor = inlineCodeBackgroundColor(textColor),
         textScale = 0.9f,
         horizontalPaddingPx = 4f * densityScale,
         verticalInsetPx = 2f * densityScale,
         cornerRadiusPx = 4f * densityScale
     )
+}
+
+private fun createInlineCodePaint(basePaint: Paint, marker: InlineCodeMarkerSpan): Paint {
+    return Paint(basePaint).apply {
+        typeface = getMarkdownCodeTypeface()
+        textSize = basePaint.textSize * marker.textScale
+        isAntiAlias = true
+    }
+}
+
+internal fun drawInlineCodeBackgrounds(
+    layout: StaticLayout,
+    canvas: Canvas,
+) {
+    val spanned = layout.text as? Spanned ?: return
+    val markers = spanned.getSpans(0, spanned.length, InlineCodeMarkerSpan::class.java)
+    if (markers.isEmpty()) return
+
+    val paint = layout.paint
+    markers.forEach { marker ->
+        val spanStart = spanned.getSpanStart(marker)
+        val spanEnd = spanned.getSpanEnd(marker)
+        if (spanStart < 0 || spanEnd <= spanStart) {
+            return@forEach
+        }
+
+        val codePaint = createInlineCodePaint(paint, marker)
+        val firstLine = layout.getLineForOffset(spanStart)
+        val lastLine = layout.getLineForOffset((spanEnd - 1).coerceAtLeast(spanStart))
+
+        for (lineIndex in firstLine..lastLine) {
+            val lineStart = layout.getLineStart(lineIndex)
+            val lineEnd = layout.getLineEnd(lineIndex)
+            val segmentStart = maxOf(spanStart, lineStart)
+            val segmentEnd = minOf(spanEnd, lineEnd)
+            if (segmentStart >= segmentEnd) {
+                continue
+            }
+
+            val startX = layout.getPrimaryHorizontal(segmentStart)
+            val measuredWidth = codePaint.measureText(spanned, segmentStart, segmentEnd)
+            val isRtl = layout.getParagraphDirection(lineIndex) == android.text.Layout.DIR_RIGHT_TO_LEFT
+            val rawLeft = if (isRtl) startX - measuredWidth else startX
+            val rawRight = if (isRtl) startX else startX + measuredWidth
+            val segmentLeft = minOf(rawLeft, rawRight)
+            val segmentRight = maxOf(rawLeft, rawRight)
+
+            canvas.drawRoundRect(
+                segmentLeft - marker.horizontalPaddingPx,
+                layout.getLineTop(lineIndex).toFloat() + marker.verticalInsetPx,
+                segmentRight + marker.horizontalPaddingPx,
+                layout.getLineBottom(lineIndex).toFloat() - marker.verticalInsetPx,
+                marker.cornerRadiusPx,
+                marker.cornerRadiusPx,
+                Paint().apply {
+                    color = marker.backgroundColor
+                    style = Paint.Style.FILL
+                    isAntiAlias = true
+                }
+            )
+        }
+    }
 }
 
 private fun stripUnderlineDelimiters(content: String): String {
@@ -392,7 +389,7 @@ private fun appendInlineNode(
                     Spanned.SPAN_EXCLUSIVE_EXCLUSIVE
                 )
                 builder.setSpan(
-                    createInlineCodeBackgroundSpan(textColor, density),
+                    createInlineCodeMarkerSpan(textColor, density),
                     start,
                     end,
                     Spanned.SPAN_EXCLUSIVE_EXCLUSIVE

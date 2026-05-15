@@ -1,15 +1,15 @@
 import type { ComposeDslContext, ComposeNode } from "../../../../types/compose-dsl";
-import { ENV_KEYS } from "../../shared/qqbot_common.js";
 import {
-  qqbot_configure,
-  qqbot_dashboard_status,
-  qqbot_service_start,
-  qqbot_service_stop
-} from "../../shared/qqbot_runtime.js";
+  type QQBotActionResult,
+  type QQBotAutoReplyConfigureParams,
+  type QQBotAutoReplyStatusResult,
+  type QQBotConfigureParams,
+  type QQBotDashboardStatusResult,
+  ENV_KEYS
+} from "../../shared/qqbot_common.js";
 import {
-  qqbot_auto_reply_configure,
-  qqbot_auto_reply_run_once
-} from "../../shared/qqbot_auto_reply.js";
+  qqbotIpc
+} from "../../shared/qqbot_ipc.js";
 
 type TextBundle = {
   title: string;
@@ -273,6 +273,14 @@ function asBoolean(value: unknown, fallback = false): boolean {
   return fallback;
 }
 
+function readPendingCount(value: unknown): number | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return null;
+  }
+  const pendingCount = Reflect.get(value, "pendingCount");
+  return typeof pendingCount === "number" && Number.isFinite(pendingCount) ? pendingCount : null;
+}
+
 function asPositiveNumber(raw: string): number | null {
   const value = Number(raw.trim());
   if (!Number.isFinite(value) || value <= 0) {
@@ -286,6 +294,26 @@ function toErrorText(error: unknown): string {
     return error.message || "unknown";
   }
   return String(error || "unknown");
+}
+
+function previewJson(value: unknown, maxLength = 1200): string {
+  try {
+    const text = JSON.stringify(value);
+    if (typeof text !== "string") {
+      return "";
+    }
+    return text.length > maxLength ? `${text.slice(0, maxLength)}...` : text;
+  } catch (_error) {
+    return "[unserializable]";
+  }
+}
+
+function logSettingsError(message: string, details?: unknown): void {
+  if (details === undefined) {
+    console.error(`[qqbot_settings] ${message}`);
+    return;
+  }
+  console.error(`[qqbot_settings] ${message}: ${previewJson(details)}`);
 }
 
 function readEnvValue(ctx: ComposeDslContext, key: string): string {
@@ -342,7 +370,7 @@ function createToggleRow(
   );
 }
 
-function buildBotLabel(runtimeStatus: any): string {
+function buildBotLabel(runtimeStatus: QQBotDashboardStatusResult): string {
   const username = firstNonBlank(String(runtimeStatus?.service?.runtime?.botUsername || ""));
   const userId = firstNonBlank(String(runtimeStatus?.service?.runtime?.botUserId || ""));
   if (username && userId) {
@@ -352,8 +380,8 @@ function buildBotLabel(runtimeStatus: any): string {
 }
 
 function buildStatusModel(
-  runtimeStatus: any,
-  autoReplyStatus: any
+  runtimeStatus: QQBotDashboardStatusResult,
+  autoReplyStatus: QQBotAutoReplyStatusResult | undefined
 ): StatusModel {
   return {
     configured: asBoolean(runtimeStatus?.configured),
@@ -365,7 +393,7 @@ function buildStatusModel(
     serviceConfigMatchesCurrent: asBoolean(runtimeStatus?.service?.configMatchesCurrent, true),
     serviceConfiguredSandbox: asBoolean(runtimeStatus?.service?.configuredUseSandbox, asBoolean(runtimeStatus?.useSandbox)),
     serviceRuntimeSandbox: asBoolean(runtimeStatus?.service?.runtimeUseSandbox, asBoolean(runtimeStatus?.useSandbox)),
-    queuePending: Number(runtimeStatus?.queue?.pendingCount || runtimeStatus?.service?.queue?.pendingCount || 0),
+    queuePending: readPendingCount(runtimeStatus?.queue) ?? readPendingCount(runtimeStatus?.service?.queue) ?? 0,
     botLabel: buildBotLabel(runtimeStatus),
     serviceError: firstNonBlank(
       String(runtimeStatus?.service?.runtime?.lastError || ""),
@@ -528,13 +556,15 @@ export default function Screen(ctx: ComposeDslContext): ComposeNode {
       clearMessages();
     }
     try {
-      const dashboardStatus = await qqbot_dashboard_status({ summary_only: true });
+      const dashboardStatus = await qqbotIpc.dashboardStatus({ summary_only: true });
       if (!dashboardStatus?.success) {
+        logSettingsError("dashboardStatus returned failure", dashboardStatus);
         throw new Error(String(dashboardStatus?.error || "qqbot_dashboard_status failed"));
       }
       const runtimeStatus = dashboardStatus;
       const autoReplyStatus = dashboardStatus?.autoReply;
       if (autoReplyStatus?.success === false) {
+        logSettingsError("autoReply status returned failure", autoReplyStatus);
         throw new Error(String(autoReplyStatus?.error || "qqbot_auto_reply_status failed"));
       }
 
@@ -558,6 +588,11 @@ export default function Screen(ctx: ComposeDslContext): ComposeNode {
       }
       instructionState.set(String(autoReplyStatus?.config?.assistantInstruction || ""));
     } catch (error) {
+      logSettingsError("refreshAll failed", {
+        message: toErrorText(error),
+        clearStateMessages,
+        markBusy
+      });
       errorMessageState.set(`${text.saveErrorPrefix}${toErrorText(error)}`);
     } finally {
       if (markBusy) {
@@ -568,7 +603,7 @@ export default function Screen(ctx: ComposeDslContext): ComposeNode {
 
   const runAction = async (
     action: RuntimeAction,
-    runner: () => Promise<any>,
+    runner: () => Promise<QQBotActionResult>,
     successMessage: string
   ): Promise<void> => {
     busyActionState.set(action);
@@ -588,7 +623,7 @@ export default function Screen(ctx: ComposeDslContext): ComposeNode {
   };
 
   const saveCredentials = async (testConnection: boolean): Promise<void> => {
-    const params: Record<string, unknown> = {
+    const params: QQBotConfigureParams = {
       app_id: appIdState.value.trim(),
       use_sandbox: useSandboxState.value,
       test_connection: testConnection,
@@ -600,7 +635,7 @@ export default function Screen(ctx: ComposeDslContext): ComposeNode {
 
     await runAction(
       testConnection ? "save_and_test" : "save_credentials",
-      async () => await qqbot_configure(params),
+      async () => await qqbotIpc.configure(params),
       testConnection ? text.testingDone : text.savingDone
     );
   };
@@ -609,12 +644,12 @@ export default function Screen(ctx: ComposeDslContext): ComposeNode {
     useSandboxState.set(checked);
     await runAction(
       "save_credentials",
-      async () => await qqbot_configure({ use_sandbox: checked }),
+      async () => await qqbotIpc.configure({ use_sandbox: checked }),
       text.savingDone
     );
   };
 
-  const buildAutomationParams = (): Record<string, unknown> => {
+  const buildAutomationParams = (): QQBotAutoReplyConfigureParams => {
     const pollIntervalMs = asPositiveNumber(pollIntervalInputState.value);
     const aiTimeoutMs = asPositiveNumber(aiTimeoutInputState.value);
     if (pollIntervalMs == null || aiTimeoutMs == null) {
@@ -638,7 +673,7 @@ export default function Screen(ctx: ComposeDslContext): ComposeNode {
   const saveAutomation = async (): Promise<void> => {
     await runAction(
       "save_automation",
-      async () => await qqbot_auto_reply_configure(buildAutomationParams()),
+      async () => await qqbotIpc.autoReplyConfigure(buildAutomationParams()),
       text.savingDone
     );
   };
@@ -655,7 +690,7 @@ export default function Screen(ctx: ComposeDslContext): ComposeNode {
     await runAction(
       "save_automation",
       async () =>
-        await qqbot_auto_reply_configure({
+        await qqbotIpc.autoReplyConfigure({
           ...buildAutomationParams(),
           enabled: checked,
           start_now: checked
@@ -675,7 +710,7 @@ export default function Screen(ctx: ComposeDslContext): ComposeNode {
     await runAction(
       checked ? "start_service" : "stop_service",
       async () => {
-        return checked ? await qqbot_service_start({}) : await qqbot_service_stop({});
+        return checked ? await qqbotIpc.serviceStart({}) : await qqbotIpc.serviceStop({});
       },
       text.actionDone
     );
@@ -1054,7 +1089,7 @@ export default function Screen(ctx: ComposeDslContext): ComposeNode {
           onClick: async () =>
             await runAction(
               "run_once",
-              async () => await qqbot_auto_reply_run_once(),
+              async () => await qqbotIpc.autoReplyRunOnce(),
               text.actionDone
             )
         })

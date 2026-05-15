@@ -1,13 +1,23 @@
 import {
+    QQBotActionResult,
+    QQBotClearEventsResult,
     DEFAULT_SERVICE_WAIT_MS,
     JsonObject,
     PACKAGE_VERSION,
+    QQBotConfigureResult,
     QQBotConfigureParams,
+    QQBotConnectionTestResult,
+    QQBotDashboardStatusParams,
+    QQBotDashboardStatusResult,
+    QQBotLifecycleResult,
     QQBotReceiveEventsParams,
+    QQBotReceiveEventsResult,
     QQBotSendC2CMessageParams,
     QQBotSendGroupMessageParams,
+    QQBotSendMessageResult,
     QQBotServiceStartParams,
     QQBotServiceStopParams,
+    QQBotStatusResult,
     QQBotTestConnectionParams,
     asText,
     firstNonBlank,
@@ -44,6 +54,18 @@ function logQQBotRuntime(message: string): void {
     console.log(`[qqbot_runtime] ${message}`);
 }
 
+function previewJson(value: unknown, maxLength = 1200): string {
+    try {
+        const text = JSON.stringify(value);
+        if (typeof text !== "string") {
+            return "";
+        }
+        return text.length > maxLength ? `${text.slice(0, maxLength)}...` : text;
+    } catch (_error) {
+        return "[unserializable]";
+    }
+}
+
 async function receiveQueuedEventsAsync(params: QQBotReceiveEventsParams = {}): Promise<JsonObject> {
     const limit = Math.min(
         MAX_RECEIVE_LIMIT,
@@ -77,7 +99,7 @@ async function clearQueuedEventsInternalAsync(): Promise<JsonObject> {
     return await clearQueuedEventsFromServiceAsync();
 }
 
-async function qqbot_configure(params: QQBotConfigureParams = {}): Promise<any> {
+async function qqbot_configure(params: QQBotConfigureParams = {}): Promise<QQBotConfigureResult> {
     try {
         const before = await readConfigSnapshotAsync();
         const updatedEnvironmentKeys: string[] = [];
@@ -141,7 +163,7 @@ async function qqbot_configure(params: QQBotConfigureParams = {}): Promise<any> 
     }
 }
 
-async function qqbot_status(params: JsonObject = {}): Promise<any> {
+async function qqbot_status(params: QQBotDashboardStatusParams = {}): Promise<QQBotStatusResult> {
     try {
         const snapshot = await readConfigSnapshotAsync();
         const summaryOnly = parseOptionalBoolean(params.summary_only, "summary_only") === true;
@@ -164,10 +186,13 @@ async function qqbot_status(params: JsonObject = {}): Promise<any> {
     }
 }
 
-async function qqbot_dashboard_status(params: JsonObject = {}): Promise<any> {
+async function qqbot_dashboard_status(
+    params: QQBotDashboardStatusParams = {}
+): Promise<QQBotDashboardStatusResult> {
     try {
         const snapshot = await readConfigSnapshotAsync();
         const summaryOnly = parseOptionalBoolean(params.summary_only, "summary_only") === true;
+        logQQBotRuntime(`dashboard status start: summaryOnly=${summaryOnly}`);
         const [service, autoReply] = await Promise.all([
             buildServiceStatusAsync({
                 snapshot,
@@ -177,6 +202,9 @@ async function qqbot_dashboard_status(params: JsonObject = {}): Promise<any> {
                 summary_only: summaryOnly
             })
         ]);
+        if (autoReply.success === false) {
+            console.error(`[qqbot_runtime] dashboard autoReply status failed: ${previewJson(autoReply)}`);
+        }
         return {
             success: true,
             packageVersion: PACKAGE_VERSION,
@@ -186,6 +214,7 @@ async function qqbot_dashboard_status(params: JsonObject = {}): Promise<any> {
             autoReply
         };
     } catch (error: any) {
+        console.error(`[qqbot_runtime] dashboard status failed: ${safeErrorMessage(error)}`);
         return {
             success: false,
             packageVersion: PACKAGE_VERSION,
@@ -194,7 +223,7 @@ async function qqbot_dashboard_status(params: JsonObject = {}): Promise<any> {
     }
 }
 
-async function qqbot_service_start(params: QQBotServiceStartParams = {}): Promise<any> {
+async function qqbot_service_start(params: QQBotServiceStartParams = {}): Promise<QQBotActionResult> {
     try {
         await updatePersistedConfigAsync({
             listenerEnabled: true
@@ -217,7 +246,7 @@ async function qqbot_service_start(params: QQBotServiceStartParams = {}): Promis
     }
 }
 
-async function qqbot_service_stop(params: QQBotServiceStopParams = {}): Promise<any> {
+async function qqbot_service_stop(params: QQBotServiceStopParams = {}): Promise<QQBotActionResult> {
     try {
         const timeoutMs = parsePositiveInt(params.timeout_ms, "timeout_ms", DEFAULT_SERVICE_WAIT_MS);
         await updatePersistedConfigAsync({
@@ -240,7 +269,7 @@ async function qqbot_service_stop(params: QQBotServiceStopParams = {}): Promise<
     }
 }
 
-async function qqbot_receive_events(params: QQBotReceiveEventsParams = {}): Promise<any> {
+async function qqbot_receive_events(params: QQBotReceiveEventsParams = {}): Promise<QQBotReceiveEventsResult> {
     try {
         const autoStart = parseOptionalBoolean(params.auto_start, "auto_start") !== false;
         if (autoStart) {
@@ -266,7 +295,7 @@ async function qqbot_receive_events(params: QQBotReceiveEventsParams = {}): Prom
     }
 }
 
-async function qqbot_clear_events(): Promise<any> {
+async function qqbot_clear_events(): Promise<QQBotClearEventsResult> {
     try {
         const cleared = await clearQueuedEventsInternalAsync();
         const service = await buildServiceStatusAsync({
@@ -287,7 +316,9 @@ async function qqbot_clear_events(): Promise<any> {
     }
 }
 
-async function qqbot_test_connection(params: QQBotTestConnectionParams = {}): Promise<any> {
+async function qqbot_test_connection(
+    params: QQBotTestConnectionParams = {}
+): Promise<QQBotConnectionTestResult> {
     try {
         const timeoutMs = resolveTimeoutMs(params.timeout_ms);
         const snapshot = await requireConfiguredSnapshotAsync();
@@ -315,7 +346,7 @@ async function qqbot_test_connection(params: QQBotTestConnectionParams = {}): Pr
     }
 }
 
-export async function onQQBotListenerApplicationCreate(): Promise<any> {
+export async function onQQBotListenerApplicationCreate(): Promise<QQBotLifecycleResult> {
     try {
         logQQBotRuntime("listener create hook start");
         const snapshot = await readConfigSnapshotAsync();
@@ -354,7 +385,7 @@ export async function onQQBotListenerApplicationCreate(): Promise<any> {
     }
 }
 
-export async function onQQBotListenerApplicationForeground(): Promise<any> {
+export async function onQQBotListenerApplicationForeground(): Promise<QQBotLifecycleResult> {
     try {
         logQQBotRuntime("listener foreground hook start");
         const snapshot = await readConfigSnapshotAsync();
@@ -392,7 +423,7 @@ export async function onQQBotListenerApplicationForeground(): Promise<any> {
     }
 }
 
-async function qqbot_send_c2c_message(params: QQBotSendC2CMessageParams): Promise<any> {
+async function qqbot_send_c2c_message(params: QQBotSendC2CMessageParams): Promise<QQBotSendMessageResult> {
     try {
         const openid = asText(params.openid).trim();
         if (!openid) {
@@ -429,7 +460,9 @@ async function qqbot_send_c2c_message(params: QQBotSendC2CMessageParams): Promis
     }
 }
 
-async function qqbot_send_group_message(params: QQBotSendGroupMessageParams): Promise<any> {
+async function qqbot_send_group_message(
+    params: QQBotSendGroupMessageParams
+): Promise<QQBotSendMessageResult> {
     try {
         const groupOpenid = asText(params.group_openid).trim();
         if (!groupOpenid) {

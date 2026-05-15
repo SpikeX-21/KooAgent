@@ -251,16 +251,26 @@ export async function queryQueuedEventsFromServiceAsync(
     params: QQBotReceiveEventsParams = {},
     timeoutMs = 4000
 ): Promise<JsonObject> {
+    const body: JsonObject = {};
+    if (params.limit !== undefined) {
+        body.limit = params.limit;
+    }
+    if (params.consume !== undefined) {
+        body.consume = params.consume;
+    }
+    if (params.scene !== undefined) {
+        body.scene = params.scene;
+    }
+    if (params.event_type !== undefined) {
+        body.eventType = params.event_type;
+    }
+    if (params.include_raw !== undefined) {
+        body.includeRaw = params.include_raw;
+    }
     return await requestLocalServiceJsonOrThrow(
         "/events/query",
         "POST",
-        {
-            limit: params.limit,
-            consume: params.consume,
-            scene: params.scene,
-            eventType: params.event_type,
-            includeRaw: params.include_raw
-        },
+        body,
         timeoutMs
     );
 }

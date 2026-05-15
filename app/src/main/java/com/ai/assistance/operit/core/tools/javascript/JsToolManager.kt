@@ -101,8 +101,11 @@ class JsToolManager private constructor(
         }
 
         runtimeParams["__operit_package_name"] = packageName
+        runtimeParams["__operit_toolpkg_runtime_kind"] = "sandbox"
 
         packageManager.resolveToolPkgSubpackageRuntimeInternal(packageName)?.let { runtime ->
+            runtimeParams["__operit_execution_context_key"] =
+                "toolpkg_main:${runtime.containerPackageName}"
             runtimeParams["__operit_toolpkg_subpackage_id"] = runtime.subpackageId
             runtimeParams["containerPackageName"] = runtime.containerPackageName
             runtimeParams["toolPkgId"] = runtime.containerPackageName
@@ -117,6 +120,27 @@ class JsToolManager private constructor(
         }
 
         return runtimeParams
+    }
+
+    private suspend fun <T> withExecutionEngineForPackage(
+        packageName: String,
+        block: suspend (JsEngine) -> T
+    ): T {
+        val toolPkgRuntime = packageManager.resolveToolPkgSubpackageRuntimeInternal(packageName)
+        if (toolPkgRuntime != null) {
+            val contextKey = "toolpkg_main:${toolPkgRuntime.containerPackageName}"
+            return block(packageManager.getToolPkgExecutionEngine(contextKey))
+        }
+        return withEngine(block)
+    }
+
+    private fun <T> withExecutionEngineForPackageBlocking(
+        packageName: String,
+        block: (JsEngine) -> T
+    ): T {
+        return runBlocking {
+            withExecutionEngineForPackage(packageName) { engine -> block(engine) }
+        }
     }
 
     private fun convertToolParameters(
@@ -289,7 +313,7 @@ class JsToolManager private constructor(
             packageName = packageName,
             params = params.mapValues { it.value as Any? }
         )
-        return withEngineBlocking { engine ->
+        return withExecutionEngineForPackageBlocking(packageName) { engine ->
             try {
                 engine.executeScriptFunction(
                     script = script,
@@ -322,7 +346,7 @@ class JsToolManager private constructor(
             send(failure(tool.name, e.message ?: "Invalid tool parameters"))
             return@channelFlow
         }
-        withEngine { engine ->
+        withExecutionEngineForPackage(packageName) { engine ->
             val traceListener =
                 object : JsExecutionListener {
                     override fun onCallLog(callId: String, level: String, message: String) {

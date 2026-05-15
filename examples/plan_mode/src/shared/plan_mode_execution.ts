@@ -1,12 +1,11 @@
-import * as planModeMode from "./plan_mode_mode.js";
 import * as planModeI18n from "./plan_mode_i18n.js";
-import * as planModePlanFile from "./plan_mode_plan_file.js";
-import * as planModeState from "./plan_mode_state.js";
 
 export type StartPlanImplementationResult = {
   success: boolean;
   error?: string;
 };
+
+export const PLAN_MODE_START_IMPLEMENTATION_IPC_CHANNEL = "plan_mode.start_implementation";
 
 export async function startPlanImplementation(
   planContent: string
@@ -20,33 +19,18 @@ export async function startPlanImplementation(
   }
 
   try {
-    const activeView = planModeState.readSingleActiveChatView();
-    if (!activeView) {
-      await Tools.System.toast(text.toastChatViewMissing);
-      return { success: false, error: text.toastChatViewMissing };
-    }
-    const written = await planModePlanFile.writePlanFile(activeView.chatId, normalizedPlanContent);
-    await planModeMode.disablePlanMode(written.chatId);
-    void Tools.Chat.sendMessage(
-      text.implementationMessage,
-      written.chatId,
-      undefined,
-      undefined,
-      { runtime: activeView.runtime }
-    ).catch((error) => {
-      const errorText = error instanceof Error
-        ? error.message || "error"
-        : (typeof error === "string" || error == null ? error || "error" : "error");
-      const message = `${text.toastPlanSendFailedPrefix}${errorText}`;
-      void Tools.System.toast(message);
-    });
-    void Tools.System.toast(text.toastPlanStarted);
-    return { success: true };
+    return await ToolPkg.ipc.call<string, StartPlanImplementationResult>(
+      PLAN_MODE_START_IMPLEMENTATION_IPC_CHANNEL,
+      normalizedPlanContent
+    );
   } catch (error) {
     const errorText = error instanceof Error
       ? error.message || "error"
       : (typeof error === "string" || error == null ? error || "error" : "error");
     const message = `${text.toastPlanWriteFailedPrefix}${errorText}`;
+    console.error(
+      `[plan_mode_execution] startPlanImplementation failed: channel=${PLAN_MODE_START_IMPLEMENTATION_IPC_CHANNEL}, planLength=${normalizedPlanContent.length}, error=${errorText}`
+    );
     await Tools.System.toast(message);
     return { success: false, error: message };
   }

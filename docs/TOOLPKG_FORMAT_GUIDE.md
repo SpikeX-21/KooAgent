@@ -394,7 +394,98 @@ exports.onInputMenuToggle = onInputMenuToggle;
 - 支持状态管理和事件处理
 - 可以调用工具和访问资源
 
-#### 3.2.5 Resources（资源文件）
+#### 3.2.5 执行上下文、模块实例与 IPC
+
+ToolPkg 运行时按执行来源分为三类上下文：
+
+| 上下文 | 典型入口 | 用途 | 实例边界 |
+|------|------|------|------|
+| `main` | `manifest.main` 指向的包入口脚本 | ToolPkg 的包级逻辑：注册 hook、执行 hook、注册/处理包级 IPC、承载包级内存态 | 同一个 ToolPkg 容器共用一个包级 JS engine，内部 context key 形如 `toolpkg_main:<toolpkg_id>` |
+| `ui` | `*.ui.js` 的 Compose DSL screen / action handler | 渲染界面、响应点击、读取 UI state | 每个 UI route、widget、XML render 实例有自己的 JS engine |
+| `sandbox` | 独立工具脚本、子包工具脚本、调试脚本 | 执行一次性工具逻辑；可以通过 IPC 调用所属 ToolPkg 的 `main` | 按工具脚本执行链路管理 |
+
+`manifest.main` 指向 ToolPkg 的包级入口脚本，这个入口脚本运行在 `main` 上下文。`main` 适合承载需要跨 UI、子包工具共享的内存态，例如当前会话状态、后台任务句柄、缓存和 IPC handler。
+
+`ToolPkg.ipc` 的 `meta.currentRuntime` 使用这些字面量：
+
+- `main`：ToolPkg 包级 main 上下文。
+- `ui`：Compose DSL UI 上下文。
+- `sandbox`：独立工具脚本、子包工具脚本、调试脚本上下文。
+
+按照示例工程当前的 `tsconfig` 配置，可以在 TypeScript 源码中正常使用 ES `import` / `export` 语法；同步脚本编译后会输出 CommonJS 形式，运行时按 `require` 加载模块。
+
+直接 `import` / `require` 共享模块时，运行时会在当前执行上下文内创建模块实例。也就是说，ToolPkg main 上下文和每个 UI 上下文各自导入同一个文件，会得到各自的一份实例；模块顶层变量不会自动跨上下文共享。
+
+这不是错误，也不是不能用。纯函数、常量、类型辅助、i18n 文案解析这类无内存态模块适合直接导入：
+
+```javascript
+const { resolveText } = require("./shared/i18n.js");
+```
+
+但带内存态的模块需要特别注意：
+
+```javascript
+// shared/counter.js
+let count = 0;
+
+exports.inc = function () {
+  count += 1;
+  return count;
+};
+```
+
+ToolPkg main 上下文导入一次、`ui/panel/index.ui.js` 再导入一次时，`count` 是两份。UI 里点按钮增加的值，不会自动改变 ToolPkg main 那份内存态。
+
+跨上下文共享状态或调用能力时，请显式使用 `ToolPkg.ipc`：
+
+```javascript
+// manifest.main 指向的脚本顶层
+let enabled = false;
+
+ToolPkg.ipc.on("demo.get_state", async function () {
+  return { enabled };
+});
+
+ToolPkg.ipc.on("demo.set_enabled", async function (payload) {
+  enabled = payload.enabled === true;
+  return { enabled };
+});
+
+function registerToolPkg() {
+  return true;
+}
+
+exports.registerToolPkg = registerToolPkg;
+```
+
+```javascript
+// ui/panel/index.ui.js
+async function loadState() {
+  const state = await ToolPkg.ipc.call("demo.get_state");
+  return state.enabled;
+}
+
+async function setEnabled(enabled) {
+  await ToolPkg.ipc.call("demo.set_enabled", { enabled });
+}
+```
+
+`ToolPkg.ipc` 的基本语义：
+
+- `ToolPkg.ipc.on(channel, handler)` 在当前上下文注册通道处理函数。
+- `ToolPkg.ipc.call(channel, payload)` 调用通道并返回 `Promise`。
+- `payload` 和返回值应使用 JSON 可序列化数据：字符串、数字、布尔值、数组、普通对象和 `null`。
+- 对象会按数据复制传输，不保留引用身份、原型、方法闭包或类实例。
+- 同一个上下文内调用已注册通道会直接进入本地 handler。
+- UI 上下文调用包级通道会通过宿主桥接到 ToolPkg main 上下文。
+
+判断准则：
+
+- 只读常量、纯函数、文案解析：直接 `import`。
+- 需要共享的内存态、缓存、当前会话状态、后台任务句柄：放在 ToolPkg main 逻辑里，通过 `ToolPkg.ipc` 访问。
+- UI state 只服务当前界面展示：放在 `ctx.useState` / `ctx.useMemo`。
+
+#### 3.2.6 Resources（资源文件）
 
 资源文件可以是任意类型的文件，如图片、压缩包、配置文件等。
 
@@ -430,7 +521,7 @@ exports.onInputMenuToggle = onInputMenuToggle;
 - 当 `mime` 是目录类型（如 `inode/directory`、`vnd.android.document/directory`）时，`ToolPkg.readResource(key)` 会先将该目录压缩成 zip，再返回这个 zip 的临时文件路径。
 - 如果没有显式传 `outputFileName`，目录资源默认会自动补上 `.zip` 后缀。
 
-#### 3.2.6 Workflow Templates（工作流模板）
+#### 3.2.7 Workflow Templates（工作流模板）
 
 ToolPkg 现在可以通过 `manifest` 直接注册工作流模板。注册后，模板会出现在宿主当前的“工作流 -> 从模板新建”入口里，也会显示在包管理的详情弹窗中。
 
@@ -474,7 +565,7 @@ ToolPkg 现在可以通过 `manifest` 直接注册工作流模板。注册后，
 - 执行统计字段会被重置
 - 导入成功后会落库成正式 `Workflow`
 
-#### 3.2.7 Workspace Templates（工作区模板）
+#### 3.2.8 Workspace Templates（工作区模板）
 
 ToolPkg 也可以通过 `manifest` 注册工作区模板。注册后，模板会出现在宿主当前的“工作区 -> 创建默认”入口里，也会显示在包管理的详情弹窗中。
 

@@ -2,8 +2,7 @@
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.default = Screen;
 const qqbot_common_js_1 = require("../../shared/qqbot_common.js");
-const qqbot_runtime_js_1 = require("../../shared/qqbot_runtime.js");
-const qqbot_auto_reply_js_1 = require("../../shared/qqbot_auto_reply.js");
+const qqbot_ipc_js_1 = require("../../shared/qqbot_ipc.js");
 function resolveText() {
     const locale = typeof getLang === "function" ? String(getLang() || "").trim().toLowerCase() : "";
     if (locale.startsWith("en")) {
@@ -160,6 +159,13 @@ function asBoolean(value, fallback = false) {
     }
     return fallback;
 }
+function readPendingCount(value) {
+    if (!value || typeof value !== "object" || Array.isArray(value)) {
+        return null;
+    }
+    const pendingCount = Reflect.get(value, "pendingCount");
+    return typeof pendingCount === "number" && Number.isFinite(pendingCount) ? pendingCount : null;
+}
 function asPositiveNumber(raw) {
     const value = Number(raw.trim());
     if (!Number.isFinite(value) || value <= 0) {
@@ -172,6 +178,25 @@ function toErrorText(error) {
         return error.message || "unknown";
     }
     return String(error || "unknown");
+}
+function previewJson(value, maxLength = 1200) {
+    try {
+        const text = JSON.stringify(value);
+        if (typeof text !== "string") {
+            return "";
+        }
+        return text.length > maxLength ? `${text.slice(0, maxLength)}...` : text;
+    }
+    catch (_error) {
+        return "[unserializable]";
+    }
+}
+function logSettingsError(message, details) {
+    if (details === undefined) {
+        console.error(`[qqbot_settings] ${message}`);
+        return;
+    }
+    console.error(`[qqbot_settings] ${message}: ${previewJson(details)}`);
 }
 function readEnvValue(ctx, key) {
     return String(ctx.getEnv(key) || "").trim();
@@ -233,7 +258,7 @@ function buildStatusModel(runtimeStatus, autoReplyStatus) {
         serviceConfigMatchesCurrent: asBoolean(runtimeStatus?.service?.configMatchesCurrent, true),
         serviceConfiguredSandbox: asBoolean(runtimeStatus?.service?.configuredUseSandbox, asBoolean(runtimeStatus?.useSandbox)),
         serviceRuntimeSandbox: asBoolean(runtimeStatus?.service?.runtimeUseSandbox, asBoolean(runtimeStatus?.useSandbox)),
-        queuePending: Number(runtimeStatus?.queue?.pendingCount || runtimeStatus?.service?.queue?.pendingCount || 0),
+        queuePending: readPendingCount(runtimeStatus?.queue) ?? readPendingCount(runtimeStatus?.service?.queue) ?? 0,
         botLabel: buildBotLabel(runtimeStatus),
         serviceError: firstNonBlank(String(runtimeStatus?.service?.runtime?.lastError || ""), String(runtimeStatus?.error || "")),
         autoReplyEnabled: asBoolean(autoReplyStatus?.config?.enabled),
@@ -371,13 +396,15 @@ function Screen(ctx) {
             clearMessages();
         }
         try {
-            const dashboardStatus = await (0, qqbot_runtime_js_1.qqbot_dashboard_status)({ summary_only: true });
+            const dashboardStatus = await qqbot_ipc_js_1.qqbotIpc.dashboardStatus({ summary_only: true });
             if (!dashboardStatus?.success) {
+                logSettingsError("dashboardStatus returned failure", dashboardStatus);
                 throw new Error(String(dashboardStatus?.error || "qqbot_dashboard_status failed"));
             }
             const runtimeStatus = dashboardStatus;
             const autoReplyStatus = dashboardStatus?.autoReply;
             if (autoReplyStatus?.success === false) {
+                logSettingsError("autoReply status returned failure", autoReplyStatus);
                 throw new Error(String(autoReplyStatus?.error || "qqbot_auto_reply_status failed"));
             }
             const nextStatus = buildStatusModel(runtimeStatus, autoReplyStatus);
@@ -401,6 +428,11 @@ function Screen(ctx) {
             instructionState.set(String(autoReplyStatus?.config?.assistantInstruction || ""));
         }
         catch (error) {
+            logSettingsError("refreshAll failed", {
+                message: toErrorText(error),
+                clearStateMessages,
+                markBusy
+            });
             errorMessageState.set(`${text.saveErrorPrefix}${toErrorText(error)}`);
         }
         finally {
@@ -437,11 +469,11 @@ function Screen(ctx) {
         if (appSecretState.value.trim()) {
             params.app_secret = appSecretState.value.trim();
         }
-        await runAction(testConnection ? "save_and_test" : "save_credentials", async () => await (0, qqbot_runtime_js_1.qqbot_configure)(params), testConnection ? text.testingDone : text.savingDone);
+        await runAction(testConnection ? "save_and_test" : "save_credentials", async () => await qqbot_ipc_js_1.qqbotIpc.configure(params), testConnection ? text.testingDone : text.savingDone);
     };
     const saveSandboxSetting = async (checked) => {
         useSandboxState.set(checked);
-        await runAction("save_credentials", async () => await (0, qqbot_runtime_js_1.qqbot_configure)({ use_sandbox: checked }), text.savingDone);
+        await runAction("save_credentials", async () => await qqbot_ipc_js_1.qqbotIpc.configure({ use_sandbox: checked }), text.savingDone);
     };
     const buildAutomationParams = () => {
         const pollIntervalMs = asPositiveNumber(pollIntervalInputState.value);
@@ -463,7 +495,7 @@ function Screen(ctx) {
         };
     };
     const saveAutomation = async () => {
-        await runAction("save_automation", async () => await (0, qqbot_auto_reply_js_1.qqbot_auto_reply_configure)(buildAutomationParams()), text.savingDone);
+        await runAction("save_automation", async () => await qqbot_ipc_js_1.qqbotIpc.autoReplyConfigure(buildAutomationParams()), text.savingDone);
     };
     const toggleAutoReplyEnabled = async (checked) => {
         if (!listenerEnabledState.value) {
@@ -474,7 +506,7 @@ function Screen(ctx) {
         if (isAnyBusy) {
             return;
         }
-        await runAction("save_automation", async () => await (0, qqbot_auto_reply_js_1.qqbot_auto_reply_configure)({
+        await runAction("save_automation", async () => await qqbot_ipc_js_1.qqbotIpc.autoReplyConfigure({
             ...buildAutomationParams(),
             enabled: checked,
             start_now: checked
@@ -489,7 +521,7 @@ function Screen(ctx) {
             return;
         }
         await runAction(checked ? "start_service" : "stop_service", async () => {
-            return checked ? await (0, qqbot_runtime_js_1.qqbot_service_start)({}) : await (0, qqbot_runtime_js_1.qqbot_service_stop)({});
+            return checked ? await qqbot_ipc_js_1.qqbotIpc.serviceStart({}) : await qqbot_ipc_js_1.qqbotIpc.serviceStop({});
         }, text.actionDone);
     };
     const statusLines = [
@@ -778,7 +810,7 @@ function Screen(ctx) {
                     text: isBusy("run_once") ? text.loading : text.runOnce,
                     enabled: !isAnyBusy,
                     fillMaxWidth: true,
-                    onClick: async () => await runAction("run_once", async () => await (0, qqbot_auto_reply_js_1.qqbot_auto_reply_run_once)(), text.actionDone)
+                    onClick: async () => await runAction("run_once", async () => await qqbot_ipc_js_1.qqbotIpc.autoReplyRunOnce(), text.actionDone)
                 })
             ])
         ])

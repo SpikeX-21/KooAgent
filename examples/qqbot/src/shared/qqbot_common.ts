@@ -1,4 +1,6 @@
-export type JsonObject = Record<string, unknown>;
+export type JsonPrimitive = string | number | boolean | null;
+export type JsonValue = JsonPrimitive | JsonValue[] | { [key: string]: JsonValue };
+export type JsonObject = { [key: string]: JsonValue };
 
 export type QQBotConfigureParams = {
     app_id?: string;
@@ -82,6 +84,159 @@ export type HiddenTerminalCommandResultLike = {
     exitCode?: number;
     executorKey?: string;
     timedOut?: boolean;
+};
+
+export type QQBotActionResult = {
+    success?: boolean;
+    error?: string;
+    packageVersion?: string;
+    status?: JsonValue;
+    service?: JsonValue;
+    config?: JsonValue;
+};
+
+export type QQBotQueueStatus = {
+    pendingCount?: number;
+};
+
+export type QQBotServiceRuntimeStatus = {
+    botUsername?: string;
+    botUserId?: string;
+    lastError?: string;
+};
+
+export type QQBotServiceStatus = {
+    running?: boolean;
+    healthy?: boolean;
+    configMatchesCurrent?: boolean;
+    configuredUseSandbox?: boolean;
+    runtimeUseSandbox?: boolean;
+    queue?: QQBotQueueStatus;
+    runtime?: QQBotServiceRuntimeStatus;
+};
+
+export type QQBotAutoReplyConfig = {
+    enabled?: boolean;
+    c2cEnabled?: boolean;
+    groupEnabled?: boolean;
+    waifu?: boolean;
+    pollIntervalMs?: number;
+    aiTimeoutMs?: number;
+    chatGroup?: string;
+    characterCardId?: string;
+    assistantInstruction?: string;
+};
+
+export type QQBotAutoReplyRuntimeStatus = {
+    running?: boolean;
+    lastError?: string;
+};
+
+export type QQBotAutoReplyStatusResult = QQBotActionResult & {
+    config?: QQBotAutoReplyConfig;
+    runtime?: QQBotAutoReplyRuntimeStatus;
+    bindings?: JsonValue;
+    records?: JsonValue;
+};
+
+export type QQBotDashboardStatusResult = QQBotActionResult & {
+    configured?: boolean;
+    appId?: string;
+    useSandbox?: boolean;
+    listenerEnabled?: boolean;
+    service?: QQBotServiceStatus;
+    queue?: JsonValue;
+    autoReply?: QQBotAutoReplyStatusResult;
+};
+
+export type QQBotDashboardStatusParams = {
+    summary_only?: boolean;
+};
+
+export type QQBotAutoReplyConfigureParams = {
+    enabled?: boolean;
+    c2c_enabled?: boolean;
+    group_enabled?: boolean;
+    waifu?: boolean;
+    poll_interval_ms?: number;
+    ai_timeout_ms?: number;
+    chat_group?: string;
+    character_card_id?: string;
+    assistant_instruction?: string;
+    start_now?: boolean;
+};
+
+export type QQBotLifecycleResult = {
+    ok: boolean;
+    error?: string;
+    listenerEnabled?: boolean;
+    started?: boolean;
+    enabled?: boolean;
+    result?: JsonValue;
+};
+
+export type QQBotConnectionTestResult = QQBotActionResult & {
+    accessTokenType?: string;
+    accessTokenExpiresIn?: number;
+    httpStatus?: number;
+    profile?: JsonObject;
+    gateway?: JsonValue;
+    status?: JsonValue;
+};
+
+export type QQBotConfigureResult = QQBotActionResult & {
+    updatedEnvironmentKeys?: string[];
+    updatedConfigFields?: string[];
+    status?: JsonValue;
+    service?: JsonValue;
+    connection?: QQBotConnectionTestResult;
+};
+
+export type QQBotStatusResult = QQBotActionResult & {
+    configured?: boolean;
+    appId?: string;
+    useSandbox?: boolean;
+    listenerEnabled?: boolean;
+    service?: JsonValue;
+    queue?: JsonValue;
+};
+
+export type QQBotReceiveEventsResult = QQBotActionResult & {
+    consume?: boolean;
+    filter?: {
+        scene: string;
+        eventType: string;
+    };
+    returnedCount?: number;
+    remainingCount?: number;
+    events?: JsonObject[];
+    service?: JsonValue;
+};
+
+export type QQBotClearEventsResult = QQBotActionResult & {
+    queue?: JsonValue;
+};
+
+export type QQBotSendMessageResult = QQBotActionResult & {
+    scene?: string;
+    openid?: string;
+    groupOpenid?: string;
+    requestBody?: JsonValue;
+    httpStatus?: number;
+    response?: JsonObject;
+};
+
+export type QQBotAutoReplyLoopResult = QQBotActionResult & {
+    skipped?: boolean;
+    reason?: string;
+    alreadyRunning?: boolean;
+    started?: boolean;
+    status?: QQBotAutoReplyStatusResult;
+    processedCount?: number;
+    skippedCount?: number;
+    processedItems?: JsonObject[];
+    skippedItems?: JsonObject[];
+    queueRemainingCount?: number;
 };
 
 export const PACKAGE_VERSION = "0.3.0";

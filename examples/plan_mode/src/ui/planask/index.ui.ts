@@ -1,5 +1,5 @@
 import type { ComposeDslContext, ComposeNode } from "../../../../types/compose-dsl";
-import { buildPlanaskAnswerMessage, parsePlanaskXml } from "../../shared/plan_mode_ask.js";
+import { parsePlanaskXml } from "../../shared/plan_mode_ask.js";
 import { submitPlanaskAnswers } from "../../shared/plan_mode_ask_execution.js";
 import { resolvePlanModeI18n } from "../../shared/plan_mode_i18n.js";
 
@@ -49,6 +49,31 @@ function resolveAnswerText(
   const selectedOptionId = selectedAnswers[question.id];
   const selectedOption = question.options.find((option) => option.id === selectedOptionId);
   return selectedOption ? selectedOption.label : "";
+}
+
+function buildPlanaskAnswerMessageLocal(
+  parsed: {
+    title: string;
+    questions: Array<{ id: string; title: string }>;
+  },
+  answerTexts: Record<string, string>
+): string {
+  const selectedQuestions = parsed.questions
+    .map((question) => {
+      const answerText = String(answerTexts[question.id] || "").trim();
+      if (!answerText) {
+        return "";
+      }
+      return `- ${question.title}：${answerText}`;
+    })
+    .filter((item) => item !== "");
+
+  const lines = ["计划确认答复："];
+  if (parsed.title) {
+    lines.push(`主题：${parsed.title}`);
+  }
+  selectedQuestions.forEach((item) => lines.push(item));
+  return lines.join("\n");
 }
 
 export default function Screen(ctx: ComposeDslContext): ComposeNode {
@@ -155,8 +180,8 @@ export default function Screen(ctx: ComposeDslContext): ComposeNode {
         answerPreview: clipLogText(answerTexts[question.id] ?? ""),
       })),
     });
-    const message = buildPlanaskAnswerMessage(parsed, answerTexts);
-    const result = submitPlanaskAnswers(message);
+    const message = buildPlanaskAnswerMessageLocal(parsed, answerTexts);
+    const result = await submitPlanaskAnswers(message);
     submittingState.set(false);
     if (result.success) {
       submittedState.set(true);

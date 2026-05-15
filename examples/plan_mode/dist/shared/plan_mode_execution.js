@@ -33,11 +33,10 @@ var __importStar = (this && this.__importStar) || (function () {
     };
 })();
 Object.defineProperty(exports, "__esModule", { value: true });
+exports.PLAN_MODE_START_IMPLEMENTATION_IPC_CHANNEL = void 0;
 exports.startPlanImplementation = startPlanImplementation;
-const planModeMode = __importStar(require("./plan_mode_mode.js"));
 const planModeI18n = __importStar(require("./plan_mode_i18n.js"));
-const planModePlanFile = __importStar(require("./plan_mode_plan_file.js"));
-const planModeState = __importStar(require("./plan_mode_state.js"));
+exports.PLAN_MODE_START_IMPLEMENTATION_IPC_CHANNEL = "plan_mode.start_implementation";
 async function startPlanImplementation(planContent) {
     const text = planModeI18n.resolvePlanModeI18n();
     const normalizedPlanContent = planContent.trim();
@@ -47,28 +46,14 @@ async function startPlanImplementation(planContent) {
         return { success: false, error: message };
     }
     try {
-        const activeView = planModeState.readSingleActiveChatView();
-        if (!activeView) {
-            await Tools.System.toast(text.toastChatViewMissing);
-            return { success: false, error: text.toastChatViewMissing };
-        }
-        const written = await planModePlanFile.writePlanFile(activeView.chatId, normalizedPlanContent);
-        await planModeMode.disablePlanMode(written.chatId);
-        void Tools.Chat.sendMessage(text.implementationMessage, written.chatId, undefined, undefined, { runtime: activeView.runtime }).catch((error) => {
-            const errorText = error instanceof Error
-                ? error.message || "error"
-                : (typeof error === "string" || error == null ? error || "error" : "error");
-            const message = `${text.toastPlanSendFailedPrefix}${errorText}`;
-            void Tools.System.toast(message);
-        });
-        void Tools.System.toast(text.toastPlanStarted);
-        return { success: true };
+        return await ToolPkg.ipc.call(exports.PLAN_MODE_START_IMPLEMENTATION_IPC_CHANNEL, normalizedPlanContent);
     }
     catch (error) {
         const errorText = error instanceof Error
             ? error.message || "error"
             : (typeof error === "string" || error == null ? error || "error" : "error");
         const message = `${text.toastPlanWriteFailedPrefix}${errorText}`;
+        console.error(`[plan_mode_execution] startPlanImplementation failed: channel=${exports.PLAN_MODE_START_IMPLEMENTATION_IPC_CHANNEL}, planLength=${normalizedPlanContent.length}, error=${errorText}`);
         await Tools.System.toast(message);
         return { success: false, error: message };
     }

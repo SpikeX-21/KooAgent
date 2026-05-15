@@ -16,7 +16,7 @@ const ZH_CN = {
     implementationMessage: "开始实施",
     rendererTitle: "实施计划",
     rendererSubtitle: "计划闭合后会显示开始实施按钮，并自动写入内部计划文件。",
-    rendererStreamingHint: "计划仍在生成中，等 <plantodo> 完整闭合后再开始实施。",
+    rendererStreamingHint: "计划仍在生成中。",
     rendererReadyHint: "计划已就绪。点击后会写入内部计划文件、关闭计划模式并发送“开始实施”。",
     rendererButtonIdle: "开始实施",
     rendererButtonBusy: "正在开始实施…",

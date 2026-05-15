@@ -758,6 +758,29 @@ export namespace ToolPkg {
         calculateInputTokens: { function: AiProviderCalculateInputTokensHandler };
     }
 
+    export interface IpcMeta {
+        channel: string;
+        callerContextKey?: string;
+        currentContextKey?: string;
+        currentRuntime?: "main" | "ui" | "sandbox";
+        packageTarget?: string;
+    }
+
+    export interface IpcApi {
+        on<TPayload = unknown, TResult = unknown>(
+            channel: string,
+            handler: (payload: TPayload, meta: IpcMeta) => TResult | Promise<TResult>
+        ): () => void;
+        off<TPayload = unknown, TResult = unknown>(
+            channel: string,
+            handler?: (payload: TPayload, meta: IpcMeta) => TResult | Promise<TResult>
+        ): boolean;
+        call<TPayload = unknown, TResult = unknown>(
+            channel: string,
+            payload?: TPayload
+        ): Promise<TResult>;
+    }
+
     export interface Registry {
         registerToolboxUiModule(definition: ToolboxUiModuleRegistration): void;
         registerUiRoute(definition: UiRouteRegistration): void;
@@ -781,6 +804,7 @@ export namespace ToolPkg {
         registerAiProvider(definition: AiProviderRegistration): void;
         readResource(key: string, outputFileName?: string, internal?: boolean): Promise<string>;
         getConfigDir(pluginId?: string): string;
+        ipc: IpcApi;
     }
 }
 

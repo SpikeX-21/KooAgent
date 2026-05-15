@@ -1090,12 +1090,14 @@ private fun UnifiedCanvasRenderer(
                                         // 1. 绘制当前行之前的所有行
                                         canvas.nativeCanvas.save()
                                         canvas.nativeCanvas.clipRect(0f, 0f, layout.width.toFloat(), lineTopPx)
+                                        drawInlineCodeBackgrounds(layout, canvas.nativeCanvas)
                                         layout.draw(canvas.nativeCanvas)
                                         canvas.nativeCanvas.restore()
 
                                         // 2. 绘制当前行，直到当前正在显示的字符之前
                                         canvas.nativeCanvas.save()
                                         canvas.nativeCanvas.clipRect(0f, lineTopPx, charMinX, lineBottomPx)
+                                        drawInlineCodeBackgrounds(layout, canvas.nativeCanvas)
                                         layout.draw(canvas.nativeCanvas)
                                         canvas.nativeCanvas.restore()
 
@@ -1106,11 +1108,13 @@ private fun UnifiedCanvasRenderer(
                                             canvas.nativeCanvas.clipRect(charMinX, lineTopPx, visibleRight, lineBottomPx)
                                             // 注意：saveLayerAlpha 在某些情况下可能会对其包含的内容做混合，如果不需要可以简化
                                             canvas.nativeCanvas.saveLayerAlpha(charMinX, lineTopPx, visibleRight, lineBottomPx, alphaInt)
+                                            drawInlineCodeBackgrounds(layout, canvas.nativeCanvas)
                                             layout.draw(canvas.nativeCanvas)
                                             canvas.nativeCanvas.restore()
                                             canvas.nativeCanvas.restore()
                                         }
                                     } else {
+                                        drawInlineCodeBackgrounds(instruction.layout, canvas.nativeCanvas)
                                         instruction.layout.draw(canvas.nativeCanvas)
                                     }
                                     canvas.nativeCanvas.restore()
@@ -1604,6 +1608,7 @@ private fun SingleTextCanvas(
                     
                     // 判断是否在可见区域内
                     if (totalHeight >= clipBounds.top && 0f <= clipBounds.bottom) {
+                        drawInlineCodeBackgrounds(layout, canvas.nativeCanvas)
                         layout.draw(canvas.nativeCanvas)
                     }
                 }

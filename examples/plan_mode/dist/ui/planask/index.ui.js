@@ -35,6 +35,23 @@ function resolveAnswerText(question, selectedAnswers, customAnswers) {
     const selectedOption = question.options.find((option) => option.id === selectedOptionId);
     return selectedOption ? selectedOption.label : "";
 }
+function buildPlanaskAnswerMessageLocal(parsed, answerTexts) {
+    const selectedQuestions = parsed.questions
+        .map((question) => {
+        const answerText = String(answerTexts[question.id] || "").trim();
+        if (!answerText) {
+            return "";
+        }
+        return `- ${question.title}：${answerText}`;
+    })
+        .filter((item) => item !== "");
+    const lines = ["计划确认答复："];
+    if (parsed.title) {
+        lines.push(`主题：${parsed.title}`);
+    }
+    selectedQuestions.forEach((item) => lines.push(item));
+    return lines.join("\n");
+}
 function Screen(ctx) {
     const text = (0, plan_mode_i18n_js_1.resolvePlanModeI18n)();
     const [xmlContent] = ctx.useState("xmlContent", "");
@@ -126,8 +143,8 @@ function Screen(ctx) {
                 answerPreview: clipLogText(answerTexts[question.id] ?? ""),
             })),
         });
-        const message = (0, plan_mode_ask_js_1.buildPlanaskAnswerMessage)(parsed, answerTexts);
-        const result = (0, plan_mode_ask_execution_js_1.submitPlanaskAnswers)(message);
+        const message = buildPlanaskAnswerMessageLocal(parsed, answerTexts);
+        const result = await (0, plan_mode_ask_execution_js_1.submitPlanaskAnswers)(message);
         submittingState.set(false);
         if (result.success) {
             submittedState.set(true);

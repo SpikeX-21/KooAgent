@@ -295,6 +295,7 @@ fun EnhancedTableBlock(
                                 currentX + cellHorizontalPaddingPx,
                                 currentY + cellVerticalPaddingPx
                             )
+                            drawInlineCodeBackgrounds(cell.layout, canvas.nativeCanvas)
                             cell.layout.draw(canvas.nativeCanvas)
                             canvas.nativeCanvas.restore()
                         }

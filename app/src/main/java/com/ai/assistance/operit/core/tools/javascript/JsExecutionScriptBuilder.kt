@@ -424,7 +424,6 @@ internal fun buildExecutionRuntimeBridgeScript(): String {
                 var callState = registerCallSession(callId, params);
                 var previousCallId = root.__operitCurrentCallId;
                 var previousCallRuntime = root.__operit_call_runtime_ref;
-                var previousDecodeGlobalBridgeTransferValue = root.__operitDecodeGlobalBridgeTransferValue;
                 root.__operitCurrentCallId = callId;
 
                 function markStage(stage) {
@@ -484,19 +483,6 @@ internal fun buildExecutionRuntimeBridgeScript(): String {
                                 delete root.__operit_call_runtime_ref;
                             } catch (_deleteRuntimeError) {
                                 root.__operit_call_runtime_ref = null;
-                            }
-                        }
-                    }
-                    if (root.__operitDecodeGlobalBridgeTransferValue === decodeGlobalBridgeTransferValue) {
-                        if (typeof previousDecodeGlobalBridgeTransferValue === 'function') {
-                            root.__operitDecodeGlobalBridgeTransferValue =
-                                previousDecodeGlobalBridgeTransferValue;
-                        } else {
-                            try {
-                                delete root.__operitDecodeGlobalBridgeTransferValue;
-                            } catch (_deleteDecodeGlobalBridgeError) {
-                                root.__operitDecodeGlobalBridgeTransferValue =
-                                    previousDecodeGlobalBridgeTransferValue || null;
                             }
                         }
                     }
@@ -679,7 +665,6 @@ internal fun buildExecutionRuntimeBridgeScript(): String {
                 var moduleCache = registrationMode
                     ? Object.create(null)
                     : ensureModuleInstanceCache();
-                var globalRequiredModuleCache = Object.create(null);
 
                 function readToolPkgModule(modulePath) {
                     if (
@@ -720,97 +705,24 @@ internal fun buildExecutionRuntimeBridgeScript(): String {
                     return contextKey.length > 0 && !/^toolpkg_main:/i.test(contextKey);
                 }
 
+                function getCurrentToolPkgRuntimeKind() {
+                    var explicitRuntime = text(
+                        readCallValue('__operit_toolpkg_runtime_kind', '')
+                    ).trim().toLowerCase();
+                    if (explicitRuntime === 'main' || explicitRuntime === 'ui' || explicitRuntime === 'sandbox') {
+                        return explicitRuntime;
+                    }
+                    if (isUiModuleRuntime()) {
+                        return 'ui';
+                    }
+                    var subpackageId = text(
+                        readCallValue('__operit_toolpkg_subpackage_id', '')
+                    ).trim();
+                    return subpackageId.length > 0 ? 'sandbox' : 'main';
+                }
+
                 function isLocalUiModulePath(modulePath) {
                     return /\.ui\.js$/i.test(normalizePath(modulePath));
-                }
-
-                function parseGlobalModuleBridgeResponse(raw, actionLabel) {
-                    if (typeof raw !== 'string' || raw.trim().length === 0) {
-                        throw new Error(actionLabel + ' returned empty response');
-                    }
-                    var parsed;
-                    try {
-                        parsed = JSON.parse(raw);
-                    } catch (error) {
-                        throw new Error(
-                            actionLabel +
-                                ' returned invalid JSON: ' +
-                                text(error && error.message ? error.message : error)
-                        );
-                    }
-                    if (!parsed || parsed.success !== true) {
-                        var message =
-                            parsed &&
-                            typeof parsed.message === 'string' &&
-                            parsed.message.trim().length > 0
-                                ? parsed.message.trim()
-                                : '';
-                        throw new Error(message);
-                    }
-                    return parsed;
-                }
-
-                function createGlobalBridgeSourceForModule(modulePath) {
-                    return {
-                        type: 'module',
-                        id: normalizePath(modulePath)
-                    };
-                }
-
-                function createGlobalBridgeSourceForHandle(handleId, contextKey) {
-                    return {
-                        type: 'handle',
-                        id: text(handleId).trim(),
-                        contextKey: text(contextKey).trim()
-                    };
-                }
-
-                function getToolPkgBridgeStore() {
-                    var store = root.__operitToolPkgBridgeReturnStore;
-                    if (!store || typeof store !== 'object') {
-                        store = {
-                            nextId: 1,
-                            values: Object.create(null),
-                            objectIds: typeof WeakMap === 'function' ? new WeakMap() : null
-                        };
-                        root.__operitToolPkgBridgeReturnStore = store;
-                    }
-                    if (!store.values || typeof store.values !== 'object') {
-                        store.values = Object.create(null);
-                    }
-                    if (!store.objectIds && typeof WeakMap === 'function') {
-                        store.objectIds = new WeakMap();
-                    }
-                    store.nextId = Number(store.nextId) || 1;
-                    return store;
-                }
-
-                function storeToolPkgBridgeValue(value) {
-                    if (value == null) {
-                        return '';
-                    }
-                    var valueType = typeof value;
-                    if (valueType !== 'object' && valueType !== 'function') {
-                        return '';
-                    }
-                    var store = getToolPkgBridgeStore();
-                    var existingId = '';
-                    if (store.objectIds && typeof store.objectIds.get === 'function') {
-                        existingId = text(store.objectIds.get(value)).trim();
-                    }
-                    if (existingId && store.values[existingId]) {
-                        return existingId;
-                    }
-                    var handleId = 'bridge_' + String(store.nextId++);
-                    store.values[handleId] = value;
-                    if (store.objectIds && typeof store.objectIds.set === 'function') {
-                        store.objectIds.set(value, handleId);
-                    }
-                    return handleId;
-                }
-
-                function buildMainToolPkgExecutionContextKey() {
-                    return packageTarget ? 'toolpkg_main:' + packageTarget : '';
                 }
 
                 function getCurrentToolPkgExecutionContextKey() {
@@ -829,717 +741,218 @@ internal fun buildExecutionRuntimeBridgeScript(): String {
                     if (scopedContextKey.length > 0) {
                         return scopedContextKey;
                     }
-                    return buildMainToolPkgExecutionContextKey();
+                    return packageTarget ? 'toolpkg_main:' + packageTarget : '';
                 }
 
-                function isHandleGlobalBridgeSource(source) {
-                    return !!source && source.type === 'handle';
+                function ensureToolPkgIpcRegistry() {
+                    var registry = root.__operitToolPkgIpcRegistry;
+                    if (!registry || typeof registry !== 'object') {
+                        registry = Object.create(null);
+                        root.__operitToolPkgIpcRegistry = registry;
+                    }
+                    return registry;
                 }
 
-                function getGlobalBridgeSourceContextKey(source) {
-                    return isHandleGlobalBridgeSource(source)
-                        ? text(source && source.contextKey).trim()
-                        : '';
+                function normalizeToolPkgIpcChannel(channel) {
+                    return text(channel).trim();
                 }
 
-                function getGlobalBridgeNativeMethodName(action, source) {
-                    if (action === 'read') {
-                        return isHandleGlobalBridgeSource(source)
-                            ? 'readGlobalToolPkgHandleMember'
-                            : 'readGlobalToolPkgModuleMember';
+                function registerToolPkgIpcHandler(channel, handler) {
+                    var normalizedChannel = normalizeToolPkgIpcChannel(channel);
+                    if (normalizedChannel.length === 0) {
+                        throw new Error('ToolPkg.ipc channel is required');
                     }
-                    if (action === 'invoke') {
-                        return isHandleGlobalBridgeSource(source)
-                            ? 'invokeGlobalToolPkgHandleFunction'
-                            : 'invokeGlobalToolPkgModuleFunction';
+                    if (typeof handler !== 'function') {
+                        throw new Error('ToolPkg.ipc handler must be a function');
                     }
-                    if (action === 'write') {
-                        return isHandleGlobalBridgeSource(source)
-                            ? 'writeGlobalToolPkgHandleMember'
-                            : 'writeGlobalToolPkgModuleMember';
-                    }
-                    throw new Error('unsupported global bridge action: ' + text(action));
-                }
-
-                function normalizeGlobalBridgeMemberPath(memberPath) {
-                    return Array.isArray(memberPath)
-                        ? memberPath.map(function(item) { return String(item); })
-                        : [];
-                }
-
-                function getGlobalBridgeSourceId(source) {
-                    return isHandleGlobalBridgeSource(source)
-                        ? text(source && source.id).trim()
-                        : normalizePath(source && source.id);
-                }
-
-                function getGlobalBridgeKind(descriptor) {
-                    if (!descriptor || typeof descriptor !== 'object') {
-                        return 'object';
-                    }
-                    if (descriptor.kind === 'function') {
-                        return 'function';
-                    }
-                    if (descriptor.kind === 'array') {
-                        return 'array';
-                    }
-                    return 'object';
-                }
-
-                function normalizeGlobalHandleKind(handleKind) {
-                    var normalized = text(handleKind).trim().toLowerCase();
-                    if (
-                        normalized === 'function' ||
-                        normalized === 'array' ||
-                        normalized === 'object'
-                    ) {
-                        return normalized;
-                    }
-                    return 'object';
-                }
-
-                function readGlobalBridgeHandleKind(value) {
-                    if (!value || (typeof value !== 'object' && typeof value !== 'function')) {
-                        return '';
-                    }
-                    try {
-                        var handleKind = text(
-                            value.__operit_toolpkg_bridge_handle_kind
-                        ).trim();
-                        if (handleKind) {
-                            return normalizeGlobalHandleKind(handleKind);
+                    ensureToolPkgIpcRegistry()[normalizedChannel] = handler;
+                    return function() {
+                        var registry = ensureToolPkgIpcRegistry();
+                        if (registry[normalizedChannel] === handler) {
+                            delete registry[normalizedChannel];
                         }
-                    } catch (_readHandleKindError) {
-                    }
-                    return '';
+                    };
                 }
 
-                function readGlobalBridgeHandleContextKey(value) {
-                    if (!value || (typeof value !== 'object' && typeof value !== 'function')) {
-                        return '';
+                function unregisterToolPkgIpcHandler(channel, handler) {
+                    var normalizedChannel = normalizeToolPkgIpcChannel(channel);
+                    if (normalizedChannel.length === 0) {
+                        return false;
                     }
-                    try {
-                        return text(
-                            value.__operit_toolpkg_bridge_context_key
-                        ).trim();
-                    } catch (_readHandleContextError) {
+                    var registry = ensureToolPkgIpcRegistry();
+                    if (arguments.length > 1 && registry[normalizedChannel] !== handler) {
+                        return false;
                     }
-                    return '';
-                }
-
-                function objectHasOwnFunctionValues(value, keys) {
-                    var normalizedKeys = Array.isArray(keys) ? keys : [];
-                    for (var i = 0; i < normalizedKeys.length; i += 1) {
-                        try {
-                            if (typeof value[normalizedKeys[i]] === 'function') {
-                                return true;
-                            }
-                        } catch (_readError) {
-                        }
+                    if (typeof registry[normalizedChannel] === 'function') {
+                        delete registry[normalizedChannel];
+                        return true;
                     }
                     return false;
                 }
 
-                function shouldUseHandleTransferForObject(value, keys) {
-                    return !canSerializeAsPlainObject(value) || objectHasOwnFunctionValues(value, keys);
-                }
-
-                function encodeGlobalBridgeTransferValue(value, seen) {
-                    if (value === undefined) {
-                        return { kind: 'undefined' };
+                function invokeToolPkgIpcLocal(channel, payload, meta) {
+                    var normalizedChannel = normalizeToolPkgIpcChannel(channel);
+                    if (normalizedChannel.length === 0) {
+                        throw new Error('ToolPkg.ipc channel is required');
                     }
-                    if (value === null) {
-                        return { kind: 'null' };
+                    var registry = ensureToolPkgIpcRegistry();
+                    var handler = registry[normalizedChannel];
+                    if (typeof handler !== 'function') {
+                        throw new Error('ToolPkg.ipc channel is not registered: ' + normalizedChannel);
                     }
-                    if (
-                        typeof value === 'string' ||
-                        typeof value === 'number' ||
-                        typeof value === 'boolean'
-                    ) {
-                        return {
-                            kind: 'primitive',
-                            value: value
-                        };
-                    }
-                    if (typeof value === 'bigint') {
-                        return {
-                            kind: 'primitive',
-                            value: text(value)
-                        };
-                    }
-                    if (hasUsableJavaInstanceMarker(value)) {
-                        return {
-                            kind: 'javaHandle',
-                            value: {
-                                __javaHandle: text(value.__javaHandle),
-                                __javaClass: text(value.__javaClass)
-                            }
-                        };
-                    }
-                    if (
-                        value &&
-                        typeof value === 'object' &&
-                        typeof value.__operit_toolpkg_module_path === 'string' &&
-                        value.__operit_toolpkg_module_path.trim().length > 0
-                    ) {
-                        return {
-                            kind: 'globalModule',
-                            modulePath: normalizePath(value.__operit_toolpkg_module_path)
-                        };
-                    }
-                    if (
-                        value &&
-                        typeof value === 'object' &&
-                        typeof value.__operit_toolpkg_bridge_handle_id === 'string' &&
-                        value.__operit_toolpkg_bridge_handle_id.trim().length > 0
-                    ) {
-                        var existingHandleId = text(value.__operit_toolpkg_bridge_handle_id).trim();
-                        var existingHandleContextKey = readGlobalBridgeHandleContextKey(value);
-                        if (!existingHandleContextKey) {
-                            throw new Error('global bridge handle context key is missing');
-                        }
-                        return {
-                            kind: 'globalHandle',
-                            handleId: existingHandleId,
-                            contextKey: existingHandleContextKey,
-                            handleKind: readGlobalBridgeHandleKind(value)
-                        };
-                    }
-                    if (typeof value === 'function') {
-                        return {
-                            kind: 'globalHandle',
-                            handleId: storeToolPkgBridgeValue(value),
-                            contextKey: getCurrentToolPkgExecutionContextKey(),
-                            handleKind: 'function'
-                        };
-                    }
-                    if (!value || typeof value !== 'object') {
-                        return {
-                            kind: 'primitive',
-                            value: text(value)
-                        };
-                    }
-                    if (!seen) {
-                        seen = [];
-                    }
-                    if (seen.indexOf(value) >= 0) {
-                        return {
-                            kind: 'globalHandle',
-                            handleId: storeToolPkgBridgeValue(value),
-                            contextKey: getCurrentToolPkgExecutionContextKey(),
-                            handleKind: Array.isArray(value) ? 'array' : 'object'
-                        };
-                    }
-                    seen.push(value);
-                    try {
-                        if (Array.isArray(value)) {
-                            return {
-                                kind: 'array',
-                                items: value.map(function(item) {
-                                    return encodeGlobalBridgeTransferValue(item, seen);
-                                })
-                            };
-                        }
-                        var keys = Object.keys(value);
-                        if (shouldUseHandleTransferForObject(value, keys)) {
-                            return {
-                                kind: 'globalHandle',
-                                handleId: storeToolPkgBridgeValue(value),
-                                contextKey: getCurrentToolPkgExecutionContextKey(),
-                                handleKind: Array.isArray(value) ? 'array' : 'object'
-                            };
-                        }
-                        var out = {};
-                        for (var i = 0; i < keys.length; i += 1) {
-                            var key = keys[i];
-                            out[key] = encodeGlobalBridgeTransferValue(value[key], seen);
-                        }
-                        return {
-                            kind: 'object',
-                            value: out
-                        };
-                    } finally {
-                        seen.pop();
-                    }
-                }
-
-                function decodeGlobalBridgeTransferValue(value) {
-                    if (!value || typeof value !== 'object') {
-                        return undefined;
-                    }
-                    if (value.kind === 'undefined') {
-                        return undefined;
-                    }
-                    if (value.kind === 'null') {
-                        return null;
-                    }
-                    if (value.kind === 'primitive') {
-                        return value.value;
-                    }
-                    if (value.kind === 'javaHandle') {
-                        var wrapValue =
-                            typeof root.__operitJavaBridgeWrapValue === 'function'
-                                ? root.__operitJavaBridgeWrapValue
-                                : null;
-                        return wrapValue
-                            ? wrapValue(value.value)
-                            : value.value;
-                    }
-                    if (value.kind === 'globalModule') {
-                        return require('/' + normalizePath(value.modulePath));
-                    }
-                    if (value.kind === 'globalHandle') {
-                        return buildGlobalBridgeValue(
-                            createGlobalBridgeSourceForHandle(
-                                value.handleId,
-                                value.contextKey
-                            ),
-                            [],
-                            {
-                                kind: normalizeGlobalHandleKind(value.handleKind)
-                            }
-                        );
-                    }
-                    if (value.kind === 'array') {
-                        return Array.isArray(value.items)
-                            ? value.items.map(function(item) {
-                                return decodeGlobalBridgeTransferValue(item);
-                            })
-                            : [];
-                    }
-                    if (value.kind === 'object') {
-                        var out = {};
-                        var keys = value.value && typeof value.value === 'object'
-                            ? Object.keys(value.value)
-                            : [];
-                        for (var i = 0; i < keys.length; i += 1) {
-                            var key = keys[i];
-                            out[key] = decodeGlobalBridgeTransferValue(value.value[key]);
-                        }
-                        return out;
-                    }
-                    return undefined;
-                }
-
-                function callGlobalBridge(action, source, memberPath, payload) {
-                    var methodName = getGlobalBridgeNativeMethodName(action, source);
-                    if (
-                        !packageTarget ||
-                        typeof NativeInterface === 'undefined' ||
-                        !NativeInterface ||
-                        typeof NativeInterface[methodName] !== 'function'
-                    ) {
-                        throw new Error('NativeInterface.' + methodName + ' is unavailable');
-                    }
-                    var normalizedSourceId = getGlobalBridgeSourceId(source);
-                    var normalizedSourceContextKey = getGlobalBridgeSourceContextKey(source);
-                    var normalizedMemberPath = JSON.stringify(
-                        normalizeGlobalBridgeMemberPath(memberPath)
-                    );
-                    var args = isHandleGlobalBridgeSource(source)
-                        ? [packageTarget, normalizedSourceContextKey, normalizedSourceId, normalizedMemberPath]
-                        : [packageTarget, normalizedSourceId, normalizedMemberPath];
-                    if (isHandleGlobalBridgeSource(source) && !normalizedSourceContextKey) {
-                        throw new Error('global bridge handle source context key is empty');
-                    }
-                    if (action === 'invoke') {
-                        var payloadArgs = Array.isArray(payload) ? payload : [];
-                        var encodedPayloadArgs = payloadArgs.map(function(item) {
-                            return encodeGlobalBridgeTransferValue(item, []);
-                        });
-                        args.push(
-                            JSON.stringify(encodedPayloadArgs)
-                        );
-                    } else if (action === 'write') {
-                        var serializedValue = JSON.stringify(
-                            encodeGlobalBridgeTransferValue(payload, [])
-                        );
-                        args.push(typeof serializedValue === 'string' ? serializedValue : 'null');
-                    }
-                    return parseGlobalModuleBridgeResponse(
-                        NativeInterface[methodName].apply(NativeInterface, args),
-                        methodName + '(' + normalizedSourceId + ')'
+                    return handler(
+                        payload,
+                        meta && typeof meta === 'object' ? meta : {}
                     );
                 }
 
-                function readGlobalBridgeMember(source, memberPath) {
-                    return callGlobalBridge('read', source, memberPath);
-                }
-
-                function invokeGlobalBridgeFunction(source, memberPath, argsArray) {
-                    return callGlobalBridge('invoke', source, memberPath, argsArray);
-                }
-
-                function writeGlobalBridgeMember(source, memberPath, value) {
-                    return callGlobalBridge('write', source, memberPath, value);
-                }
-
-                function materializeGlobalInvocationResult(source, result) {
-                    if (!result || typeof result !== 'object') {
-                        return undefined;
+                function ensureToolPkgIpcApi() {
+                    var toolPkgApi = root.ToolPkg && typeof root.ToolPkg === 'object'
+                        ? root.ToolPkg
+                        : {};
+                    if (root.ToolPkg !== toolPkgApi) {
+                        root.ToolPkg = toolPkgApi;
                     }
-                    if (result.kind === 'undefined') {
-                        return undefined;
-                    }
-                    if (result.kind === 'null') {
-                        return null;
-                    }
-                    if (
-                        (result.kind === 'function' ||
-                            result.kind === 'object' ||
-                            result.kind === 'array') &&
-                        typeof result.handleId === 'string' &&
-                        result.handleId.trim().length > 0
-                    ) {
-                        var resultContextKey = isHandleGlobalBridgeSource(source)
-                            ? getGlobalBridgeSourceContextKey(source)
-                            : buildMainToolPkgExecutionContextKey();
-                        if (!resultContextKey) {
-                            throw new Error('global bridge handle result context key is empty');
+                    var ipcApi = toolPkgApi.ipc && typeof toolPkgApi.ipc === 'object'
+                        ? toolPkgApi.ipc
+                        : {};
+
+                    ipcApi.on = function(channel, handler) {
+                        return registerToolPkgIpcHandler(channel, handler);
+                    };
+                    ipcApi.off = function(channel, handler) {
+                        return unregisterToolPkgIpcHandler(channel, handler);
+                    };
+                    ipcApi.call = function(channel, payload) {
+                        var normalizedChannel = normalizeToolPkgIpcChannel(channel);
+                        if (normalizedChannel.length === 0) {
+                            return Promise.reject(new Error('ToolPkg.ipc channel is required'));
                         }
-                        var handleSource = createGlobalBridgeSourceForHandle(
-                            result.handleId,
-                            resultContextKey
-                        );
-                        return buildGlobalBridgeValue(handleSource, [], result);
-                    }
-                    if (result.kind === 'primitive') {
-                        return result.value;
-                    }
-                    throw new Error(
-                        'unsupported global toolpkg invocation result kind: ' +
-                        text(result.kind || 'unknown')
-                    );
-                }
-
-                function materializeGlobalSnapshot(source, memberPath, descriptor) {
-                    if (arguments.length < 3) {
-                        descriptor = readGlobalBridgeMember(source, memberPath);
-                    }
-                    if (!descriptor || typeof descriptor !== 'object') {
-                        return undefined;
-                    }
-                    if (descriptor.kind === 'undefined') {
-                        return undefined;
-                    }
-                    if (descriptor.kind === 'null') {
-                        return null;
-                    }
-                    if (descriptor.kind === 'primitive') {
-                        return descriptor.value;
-                    }
-
-                    var kind = getGlobalBridgeKind(descriptor);
-                    var normalizedMemberPath = normalizeGlobalBridgeMemberPath(memberPath);
-                    var keys = Array.isArray(descriptor.keys) ? descriptor.keys : [];
-                    var out = kind === 'array' ? [] : {};
-                    for (var i = 0; i < keys.length; i += 1) {
-                        var key = String(keys[i]);
-                        out[key] = materializeGlobalSnapshot(
-                            source,
-                            normalizedMemberPath.concat([key])
-                        );
-                    }
-                    if (kind === 'array') {
-                        var nextLength = Number(descriptor.length);
-                        if (!isNaN(nextLength) && nextLength >= 0) {
-                            out.length = nextLength;
-                        }
-                    }
-                    return out;
-                }
-
-                function nextGlobalModuleBridgeCallbackId() {
-                    return (
-                        '__operit_global_bridge_' +
-                        Date.now() +
-                        '_' +
-                        Math.random().toString(36).slice(2, 10)
-                    );
-                }
-
-                function invokeGlobalToolPkgBridgeAsync(source, actionLabel, nativeInvoker) {
-                    return new Promise(function(resolve, reject) {
-                        var callbackId = nextGlobalModuleBridgeCallbackId();
-                        root[callbackId] = function(rawResponse) {
-                            delete root[callbackId];
+                        var currentContextKey = getCurrentToolPkgExecutionContextKey();
+                        var currentRuntime = getCurrentToolPkgRuntimeKind();
+                        if (currentRuntime === 'main') {
                             try {
-                                resolve(
-                                    materializeGlobalInvocationResult(
-                                        source,
-                                        parseGlobalModuleBridgeResponse(rawResponse, actionLabel)
-                                    )
+                                return Promise.resolve(
+                                    invokeToolPkgIpcLocal(normalizedChannel, payload, {
+                                        channel: normalizedChannel,
+                                        callerContextKey: currentContextKey,
+                                        currentContextKey: currentContextKey,
+                                        currentRuntime: currentRuntime,
+                                        packageTarget: packageTarget
+                                    })
                                 );
                             } catch (error) {
+                                return Promise.reject(error);
+                            }
+                        }
+                        if (
+                            !packageTarget ||
+                            typeof NativeInterface === 'undefined' ||
+                            !NativeInterface ||
+                            typeof NativeInterface.invokeToolPkgMainIpcAsync !== 'function'
+                        ) {
+                            return Promise.reject(new Error('ToolPkg.ipc main runtime bridge is unavailable'));
+                        }
+                        var payloadJson;
+                        try {
+                            payloadJson = serializeOrThrow(payload);
+                        } catch (error) {
+                            try {
+                                if (
+                                    typeof NativeInterface !== 'undefined' &&
+                                    NativeInterface &&
+                                    typeof NativeInterface.logErrorForCall === 'function'
+                                ) {
+                                    NativeInterface.logErrorForCall(
+                                        callId,
+                                        'ToolPkg.ipc payload serialization failed: ' +
+                                            text(error && error.message ? error.message : error)
+                                    );
+                                }
+                            } catch (_logIpcPayloadError) {}
+                            return Promise.reject(error);
+                        }
+                        return new Promise(function(resolve, reject) {
+                            var callbackId =
+                                '__operit_toolpkg_ipc_' +
+                                Date.now() +
+                                '_' +
+                                Math.random().toString(36).slice(2, 10);
+                            root[callbackId] = function(resultJson, isError) {
+                                try {
+                                    delete root[callbackId];
+                                } catch (_deleteCallbackError) {
+                                    root[callbackId] = undefined;
+                                }
+                                if (isError) {
+                                    reject(new Error(text(resultJson).trim() || 'ToolPkg.ipc call failed'));
+                                    return;
+                                }
+                                var parsed;
+                                try {
+                                    parsed = JSON.parse(text(resultJson) || 'null');
+                                } catch (error) {
+                                    try {
+                                        if (
+                                            typeof NativeInterface !== 'undefined' &&
+                                            NativeInterface &&
+                                            typeof NativeInterface.logErrorForCall === 'function'
+                                        ) {
+                                            var resultType = resultJson === null ? 'null' : typeof resultJson;
+                                            var preview = text(resultJson).slice(0, 500);
+                                            NativeInterface.logErrorForCall(
+                                                callId,
+                                                'ToolPkg.ipc returned invalid JSON: ' +
+                                                    text(error && error.message ? error.message : error) +
+                                                    ', resultType=' + resultType +
+                                                    ', preview=' + preview
+                                            );
+                                        }
+                                    } catch (_logIpcParseError) {}
+                                    reject(
+                                        new Error(
+                                            'ToolPkg.ipc returned invalid JSON: ' +
+                                                text(error && error.message ? error.message : error)
+                                        )
+                                    );
+                                    return;
+                                }
+                                if (parsed && parsed.success === true) {
+                                    resolve(parsed.value);
+                                    return;
+                                }
+                                reject(
+                                    new Error(
+                                        parsed && typeof parsed.message === 'string' && parsed.message.trim().length > 0
+                                            ? parsed.message.trim()
+                                            : 'ToolPkg.ipc call failed'
+                                    )
+                                );
+                            };
+                            try {
+                                NativeInterface.invokeToolPkgMainIpcAsync(
+                                    callbackId,
+                                    packageTarget,
+                                    currentContextKey,
+                                    normalizedChannel,
+                                    payloadJson
+                                );
+                            } catch (error) {
+                                try {
+                                    delete root[callbackId];
+                                } catch (_deleteCallbackInvokeError) {
+                                    root[callbackId] = undefined;
+                                }
                                 reject(error);
                             }
-                        };
-                        try {
-                            nativeInvoker(callbackId);
-                        } catch (error) {
-                            delete root[callbackId];
-                            reject(error);
-                        }
-                    });
-                }
-
-                function invokeGlobalBridgeFunctionAsync(source, memberPath, argsArray) {
-                    var methodName = isHandleGlobalBridgeSource(source)
-                        ? 'invokeGlobalToolPkgHandleFunctionAsync'
-                        : 'invokeGlobalToolPkgModuleFunctionAsync';
-                    var normalizedMemberPath = JSON.stringify(
-                        normalizeGlobalBridgeMemberPath(memberPath)
-                    );
-                    var payloadArgs = Array.isArray(argsArray) ? argsArray : [];
-                    var encodedPayloadArgs = payloadArgs.map(function(item) {
-                        return encodeGlobalBridgeTransferValue(item, []);
-                    });
-                    var serializedArgs = JSON.stringify(encodedPayloadArgs);
-                    if (
-                        !packageTarget ||
-                        typeof NativeInterface === 'undefined' ||
-                        !NativeInterface ||
-                        typeof NativeInterface[methodName] !== 'function'
-                    ) {
-                        throw new Error('NativeInterface.' + methodName + ' is unavailable');
-                    }
-                    var normalizedSourceId = getGlobalBridgeSourceId(source);
-                    var normalizedSourceContextKey = getGlobalBridgeSourceContextKey(source);
-                    return invokeGlobalToolPkgBridgeAsync(
-                        source,
-                        methodName.replace(/Async$/, '') + '(' + normalizedSourceId + ')',
-                        function(callbackId) {
-                            NativeInterface[methodName](
-                                callbackId,
-                                packageTarget,
-                                normalizedSourceContextKey,
-                                normalizedSourceId,
-                                normalizedMemberPath,
-                                serializedArgs
-                            );
-                        }
-                    );
-                }
-
-                function buildGlobalBridgeValue(source, memberPath, descriptor) {
-                    if (!descriptor || typeof descriptor !== 'object') {
-                        return undefined;
-                    }
-                    if (descriptor.kind === 'undefined') {
-                        return undefined;
-                    }
-                    if (descriptor.kind === 'null') {
-                        return null;
-                    }
-                    if (descriptor.kind === 'primitive') {
-                        return descriptor.value;
-                    }
-
-                    var kind = getGlobalBridgeKind(descriptor);
-                    var normalizedMemberPath = normalizeGlobalBridgeMemberPath(memberPath);
-                    var normalizedSourceId = getGlobalBridgeSourceId(source);
-                    var normalizedSourceContextKey = getGlobalBridgeSourceContextKey(source);
-                    var sourceIdentity = normalizedSourceId;
-                    if (isHandleGlobalBridgeSource(source)) {
-                        sourceIdentity =
-                            normalizedSourceContextKey +
-                            '@@' +
-                            sourceIdentity;
-                    }
-                    var cacheKey = (
-                        (isHandleGlobalBridgeSource(source) ? 'handle' : 'module') +
-                        '::' +
-                        sourceIdentity +
-                        '::' +
-                        JSON.stringify(normalizedMemberPath) +
-                        '::' +
-                        text(descriptor.kind)
-                    );
-                    if (globalRequiredModuleCache[cacheKey]) {
-                        return globalRequiredModuleCache[cacheKey];
-                    }
-
-                    var isAsyncFunction = kind === 'function' && descriptor.isAsync === true;
-                    var invokeFn = function(args) {
-                        if (isAsyncFunction) {
-                            return invokeGlobalBridgeFunctionAsync(
-                                source,
-                                normalizedMemberPath,
-                                args
-                            );
-                        }
-                        return materializeGlobalInvocationResult(
-                            source,
-                            invokeGlobalBridgeFunction(
-                                source,
-                                normalizedMemberPath,
-                                args
-                            )
-                        );
+                        });
                     };
-                    var target = kind === 'function'
-                        ? function() {
-                            return invokeFn(Array.prototype.slice.call(arguments));
-                        }
-                        : (kind === 'array' ? [] : {});
 
-                    var proxy = new Proxy(target, {
-                        get: function(proxyTarget, prop, receiver) {
-                            if (typeof prop === 'symbol') {
-                                if (prop === Symbol.toStringTag) {
-                                    return kind === 'array' ? 'Array' : (kind === 'function' ? 'Function' : 'Object');
-                                }
-                                if (kind === 'array' && prop === Symbol.iterator) {
-                                    return function() {
-                                        return materializeGlobalSnapshot(source, normalizedMemberPath)[Symbol.iterator]();
-                                    };
-                                }
-                                return Reflect.get(proxyTarget, prop, receiver);
-                            }
-                            if (prop === 'then') {
-                                return undefined;
-                            }
-                            if (
-                                prop === (
-                                    isHandleGlobalBridgeSource(source)
-                                        ? '__operit_toolpkg_bridge_handle_id'
-                                        : '__operit_toolpkg_module_path'
-                                )
-                            ) {
-                                return normalizedSourceId;
-                            }
-                            if (
-                                isHandleGlobalBridgeSource(source) &&
-                                prop === '__operit_toolpkg_bridge_context_key'
-                            ) {
-                                return normalizedSourceContextKey;
-                            }
-                            if (
-                                isHandleGlobalBridgeSource(source) &&
-                                prop === '__operit_toolpkg_bridge_handle_kind'
-                            ) {
-                                return kind;
-                            }
-                            if (kind === 'function' && (
-                                prop === 'name' ||
-                                prop === 'length' ||
-                                prop === 'prototype' ||
-                                prop === 'caller' ||
-                                prop === 'arguments'
-                            )) {
-                                return Reflect.get(proxyTarget, prop, receiver);
-                            }
-                            if (kind !== 'function' && prop === 'toJSON') {
-                                return function() {
-                                    return materializeGlobalSnapshot(source, normalizedMemberPath);
-                                };
-                            }
-                            if (
-                                kind === 'array' &&
-                                typeof prop === 'string' &&
-                                prop !== 'constructor' &&
-                                typeof Array.prototype[prop] === 'function'
-                            ) {
-                                return function() {
-                                    var snapshot = materializeGlobalSnapshot(
-                                        source,
-                                        normalizedMemberPath
-                                    );
-                                    var localMethod = snapshot && snapshot[prop];
-                                    if (typeof localMethod !== 'function') {
-                                        throw new Error(
-                                            'array bridge method is unavailable locally: ' +
-                                                String(prop)
-                                        );
-                                    }
-                                    return localMethod.apply(
-                                        snapshot,
-                                        Array.prototype.slice.call(arguments)
-                                    );
-                                };
-                            }
-
-                            var nextDescriptor = readGlobalBridgeMember(
-                                source,
-                                normalizedMemberPath.concat([String(prop)])
-                            );
-                            return buildGlobalBridgeValue(
-                                source,
-                                normalizedMemberPath.concat([String(prop)]),
-                                nextDescriptor
-                            );
-                        },
-                        set: function(proxyTarget, prop, value) {
-                            if (typeof prop !== 'string') {
-                                return false;
-                            }
-                            if (kind === 'function' && (
-                                prop === 'name' ||
-                                prop === 'length' ||
-                                prop === 'prototype' ||
-                                prop === 'caller' ||
-                                prop === 'arguments'
-                            )) {
-                                return Reflect.set(proxyTarget, prop, value);
-                            }
-                            writeGlobalBridgeMember(
-                                source,
-                                normalizedMemberPath.concat([String(prop)]),
-                                value
-                            );
-                            return true;
-                        },
-                        ownKeys: function(proxyTarget) {
-                            var latestDescriptor = readGlobalBridgeMember(source, normalizedMemberPath);
-                            var keys = Reflect.ownKeys(proxyTarget);
-                            if (Array.isArray(latestDescriptor.keys)) {
-                                latestDescriptor.keys.forEach(function(key) {
-                                    var normalizedKey = String(key);
-                                    if (keys.indexOf(normalizedKey) < 0) {
-                                        keys.push(normalizedKey);
-                                    }
-                                });
-                            }
-                            if (kind === 'array' && keys.indexOf('length') < 0) {
-                                keys.push('length');
-                            }
-                            return keys;
-                        },
-                        has: function(_proxyTarget, prop) {
-                            if (typeof prop !== 'string') {
-                                return false;
-                            }
-                            if (kind === 'array' && prop === 'length') {
-                                return true;
-                            }
-                            var latestDescriptor = readGlobalBridgeMember(source, normalizedMemberPath);
-                            return Array.isArray(latestDescriptor.keys)
-                                ? latestDescriptor.keys.map(String).indexOf(prop) >= 0
-                                : false;
-                        },
-                        getOwnPropertyDescriptor: function(proxyTarget, prop) {
-                            var localDescriptor = Reflect.getOwnPropertyDescriptor(proxyTarget, prop);
-                            if (localDescriptor) {
-                                return localDescriptor;
-                            }
-                            if (typeof prop !== 'string') {
-                                return undefined;
-                            }
-                            return {
-                                enumerable: true,
-                                configurable: true
-                            };
-                        },
-                        apply: kind === 'function'
-                            ? function(_proxyTarget, _thisArg, argList) {
-                                return invokeFn(Array.isArray(argList) ? argList : []);
-                            }
-                            : undefined
-                    });
-
-                    globalRequiredModuleCache[cacheKey] = proxy;
-                    return proxy;
+                    toolPkgApi.ipc = ipcApi;
+                    root.__operitInvokeToolPkgIpcLocal = invokeToolPkgIpcLocal;
                 }
+
+                ensureToolPkgIpcApi();
 
                 function canSerializeAsPlainObject(value) {
                     if (!value || typeof value !== 'object') {
@@ -1551,8 +964,6 @@ internal fun buildExecutionRuntimeBridgeScript(): String {
                     var prototype = Object.getPrototypeOf(value);
                     return prototype === Object.prototype || prototype === null;
                 }
-
-                root.__operitDecodeGlobalBridgeTransferValue = decodeGlobalBridgeTransferValue;
 
                 function executeModule(modulePath, moduleText, requireInternal) {
                     markStage('execute_required_module');
@@ -1634,24 +1045,6 @@ internal fun buildExecutionRuntimeBridgeScript(): String {
 
                     if (registrationMode && isLocalUiModulePath(resolvedPath)) {
                         return createRegistrationScreenPlaceholder(resolvedPath);
-                    }
-
-                    if (isUiModuleRuntime() && !isLocalUiModulePath(resolvedPath)) {
-                        var globalModuleCacheKey = 'global:' + resolvedPath;
-                        if (Object.prototype.hasOwnProperty.call(globalRequiredModuleCache, globalModuleCacheKey)) {
-                            return globalRequiredModuleCache[globalModuleCacheKey];
-                        }
-                        var globalDescriptor = readGlobalBridgeMember(
-                            createGlobalBridgeSourceForModule(resolvedPath),
-                            []
-                        );
-                        var globalValue = buildGlobalBridgeValue(
-                            createGlobalBridgeSourceForModule(resolvedPath),
-                            [],
-                            globalDescriptor
-                        );
-                        globalRequiredModuleCache[globalModuleCacheKey] = globalValue;
-                        return globalValue;
                     }
 
                     var loaded = readToolPkgModule(resolvedPath);

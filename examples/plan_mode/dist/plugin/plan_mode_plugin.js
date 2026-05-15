@@ -9,10 +9,10 @@ exports.onPromptEstimateFinalize = onPromptEstimateFinalize;
 exports.registerToolPkg = registerToolPkg;
 const plan_mode_constants_js_1 = require("../shared/plan_mode_constants.js");
 const plan_mode_i18n_js_1 = require("../shared/plan_mode_i18n.js");
-const plan_mode_mode_js_1 = require("../shared/plan_mode_mode.js");
-const plan_mode_plan_file_js_1 = require("../shared/plan_mode_plan_file.js");
+const plan_mode_runtime_ipc_js_1 = require("../shared/plan_mode_runtime_ipc.js");
 const plan_mode_prompt_js_1 = require("../shared/plan_mode_prompt.js");
-const plan_mode_state_js_1 = require("../shared/plan_mode_state.js");
+const plan_mode_execution_js_1 = require("../shared/plan_mode_execution.js");
+const plan_mode_ask_execution_js_1 = require("../shared/plan_mode_ask_execution.js");
 const plan_mode_workspace_js_1 = require("../shared/plan_mode_workspace.js");
 const planask_xml_render_plugin_js_1 = require("./planask-xml-render-plugin.js");
 const plantodo_xml_render_plugin_js_1 = require("./plantodo-xml-render-plugin.js");
@@ -22,6 +22,7 @@ const PLAN_MODE_BLOCKED_TOOL_NAMES = new Set([
     "edit_file",
     "delete_file",
 ]);
+let planModeIpcRegistered = false;
 function usesChatPrompt(payload) {
     const promptFunctionType = payload.promptFunctionType;
     if (promptFunctionType !== undefined && promptFunctionType !== "") {
@@ -35,6 +36,83 @@ function isPlanModeRuntime(value) {
 }
 function isNonEmptyString(value) {
     return typeof value === "string" && value.trim() !== "";
+}
+async function handleSubmitPlanaskAnswersIpc(message) {
+    const text = (0, plan_mode_i18n_js_1.resolvePlanModeI18n)();
+    try {
+        const activeView = await plan_mode_runtime_ipc_js_1.PlanModeShared.getSingleActiveChatView();
+        if (!activeView) {
+            await Tools.System.toast(text.toastChatViewMissing);
+            return {
+                success: false,
+                error: text.toastChatViewMissing,
+            };
+        }
+        void Tools.Chat.sendMessage(message, activeView.chatId, undefined, undefined, { runtime: activeView.runtime }).catch((error) => {
+            const errorText = error instanceof Error
+                ? error.message || "error"
+                : (typeof error === "string" || error == null ? error || "error" : "error");
+            const toastMessage = `${text.askToastAnswerSendFailedPrefix}${errorText}`;
+            void Tools.System.toast(toastMessage);
+        });
+        await Tools.System.toast(text.askToastAnswerSent);
+        return { success: true };
+    }
+    catch (error) {
+        const errorText = error instanceof Error
+            ? error.message || "error"
+            : (typeof error === "string" || error == null ? error || "error" : "error");
+        const messageText = `${text.askToastAnswerSendFailedPrefix}${errorText}`;
+        await Tools.System.toast(messageText);
+        return {
+            success: false,
+            error: messageText,
+        };
+    }
+}
+async function handleStartImplementationIpc(planContent) {
+    const text = (0, plan_mode_i18n_js_1.resolvePlanModeI18n)();
+    const normalizedPlanContent = planContent.trim();
+    if (!normalizedPlanContent) {
+        const messageText = text.toastPlanEmpty;
+        await Tools.System.toast(messageText);
+        return { success: false, error: messageText };
+    }
+    try {
+        const activeView = await plan_mode_runtime_ipc_js_1.PlanModeShared.getSingleActiveChatView();
+        if (!activeView) {
+            await Tools.System.toast(text.toastChatViewMissing);
+            return { success: false, error: text.toastChatViewMissing };
+        }
+        const written = await plan_mode_runtime_ipc_js_1.PlanModeShared.writePlanFile(activeView.chatId, normalizedPlanContent);
+        await plan_mode_runtime_ipc_js_1.PlanModeShared.disable(written.chatId);
+        void Tools.Chat.sendMessage(text.implementationMessage, written.chatId, undefined, undefined, { runtime: activeView.runtime }).catch((error) => {
+            const errorText = error instanceof Error
+                ? error.message || "error"
+                : (typeof error === "string" || error == null ? error || "error" : "error");
+            const messageText = `${text.toastPlanSendFailedPrefix}${errorText}`;
+            void Tools.System.toast(messageText);
+        });
+        void Tools.System.toast(text.toastPlanStarted);
+        return { success: true };
+    }
+    catch (error) {
+        const errorText = error instanceof Error
+            ? error.message || "error"
+            : (typeof error === "string" || error == null ? error || "error" : "error");
+        const messageText = `${text.toastPlanWriteFailedPrefix}${errorText}`;
+        await Tools.System.toast(messageText);
+        return { success: false, error: messageText };
+    }
+}
+function registerPlanModeIpc() {
+    if (planModeIpcRegistered) {
+        return;
+    }
+    planModeIpcRegistered = true;
+    (0, plan_mode_runtime_ipc_js_1.registerSharedMethods)(plan_mode_runtime_ipc_js_1.PlanModeShared);
+    ToolPkg.ipc.on(plan_mode_ask_execution_js_1.PLAN_MODE_SUBMIT_ANSWERS_IPC_CHANNEL, handleSubmitPlanaskAnswersIpc);
+    ToolPkg.ipc.on(plan_mode_execution_js_1.PLAN_MODE_START_IMPLEMENTATION_IPC_CHANNEL, handleStartImplementationIpc);
 }
 function filterPlanModeTools(availableTools) {
     return availableTools.filter((tool) => !PLAN_MODE_BLOCKED_TOOL_NAMES.has(tool.name));
@@ -68,8 +146,8 @@ async function onInputMenuToggle(event) {
             return null;
         }
         const text = (0, plan_mode_i18n_js_1.resolvePlanModeI18n)();
-        const enabled = (0, plan_mode_mode_js_1.isPlanModeEnabledForChat)(chatId);
-        const workspace = (0, plan_mode_workspace_js_1.resolveChatWorkspace)(chatId, runtime);
+        const enabled = await plan_mode_runtime_ipc_js_1.PlanModeShared.isEnabled(chatId);
+        const workspace = await plan_mode_runtime_ipc_js_1.PlanModeShared.resolveWorkspace(chatId, runtime);
         (0, plan_mode_workspace_js_1.logPlanModeDebug)("onInputMenuToggle", {
             action,
             runtime,
@@ -98,7 +176,7 @@ async function onInputMenuToggle(event) {
         if (action === "toggle" && payload.toggleId === plan_mode_constants_js_1.TOGGLE_ID) {
             if (enabled) {
                 (0, plan_mode_workspace_js_1.logPlanModeDebug)("toggle.disable", { chatId, runtime });
-                await (0, plan_mode_mode_js_1.disablePlanMode)(chatId);
+                await plan_mode_runtime_ipc_js_1.PlanModeShared.disable(chatId);
                 return null;
             }
             if (!workspace) {
@@ -112,7 +190,7 @@ async function onInputMenuToggle(event) {
                 workspacePath: workspace.workspacePath,
                 workspaceEnv: workspace.workspaceEnv,
             });
-            await (0, plan_mode_mode_js_1.enablePlanModeForChat)(workspace.chatId);
+            await plan_mode_runtime_ipc_js_1.PlanModeShared.enable(workspace.chatId);
         }
         return null;
     }
@@ -158,10 +236,10 @@ async function onChatViewEvent(event) {
             title,
         });
         if (eventName === "view_closed") {
-            await (0, plan_mode_state_js_1.removeTrackedChatViewAsync)(runtime, viewId);
+            await plan_mode_runtime_ipc_js_1.PlanModeShared.removeTrackedChatView(runtime, viewId);
             return;
         }
-        await (0, plan_mode_state_js_1.upsertTrackedChatViewAsync)({
+        await plan_mode_runtime_ipc_js_1.PlanModeShared.upsertTrackedChatView({
             viewId,
             runtime,
             chatId,
@@ -190,13 +268,13 @@ async function onSystemPromptCompose(event) {
         if (chatId === undefined || currentPrompt === undefined) {
             return null;
         }
-        if ((0, plan_mode_mode_js_1.isPlanModeEnabledForChat)(chatId)) {
+        if (await plan_mode_runtime_ipc_js_1.PlanModeShared.isEnabled(chatId)) {
             return {
                 systemPrompt: (0, plan_mode_prompt_js_1.appendPrompt)(currentPrompt, (0, plan_mode_prompt_js_1.buildPlanningModePrompt)(useEnglish)),
             };
         }
-        const workspace = (0, plan_mode_workspace_js_1.resolveChatWorkspace)(chatId);
-        if (!workspace || !(await (0, plan_mode_plan_file_js_1.hasPlanFile)(workspace.chatId))) {
+        const workspace = await plan_mode_runtime_ipc_js_1.PlanModeShared.resolveWorkspace(chatId);
+        if (!workspace || !(await plan_mode_runtime_ipc_js_1.PlanModeShared.hasPlanFile(workspace.chatId))) {
             return null;
         }
         return {
@@ -222,7 +300,7 @@ async function onToolPromptCompose(event) {
         if (chatId === undefined || availableTools === undefined || !usesChatPrompt(payload)) {
             return null;
         }
-        if (!(0, plan_mode_mode_js_1.isPlanModeEnabledForChat)(chatId)) {
+        if (!(await plan_mode_runtime_ipc_js_1.PlanModeShared.isEnabled(chatId))) {
             return null;
         }
         const filteredTools = filterPlanModeTools(availableTools);
@@ -250,13 +328,13 @@ async function buildPromptFinalizeResult(payload) {
         return null;
     }
     const useEnglish = payload.useEnglish === true;
-    if ((0, plan_mode_mode_js_1.isPlanModeEnabledForChat)(chatId)) {
+    if (await plan_mode_runtime_ipc_js_1.PlanModeShared.isEnabled(chatId)) {
         return {
             preparedHistory: appendPlanPromptToPreparedHistory(preparedHistory, (0, plan_mode_prompt_js_1.buildPlanningModePrompt)(useEnglish)),
         };
     }
-    const workspace = (0, plan_mode_workspace_js_1.resolveChatWorkspace)(chatId);
-    if (!workspace || !(await (0, plan_mode_plan_file_js_1.hasPlanFile)(workspace.chatId))) {
+    const workspace = await plan_mode_runtime_ipc_js_1.PlanModeShared.resolveWorkspace(chatId);
+    if (!workspace || !(await plan_mode_runtime_ipc_js_1.PlanModeShared.hasPlanFile(workspace.chatId))) {
         return null;
     }
     return {
@@ -295,6 +373,7 @@ async function onPromptEstimateFinalize(event) {
         return null;
     }
 }
+registerPlanModeIpc();
 function registerToolPkg() {
     ToolPkg.registerInputMenuTogglePlugin({
         id: plan_mode_constants_js_1.MENU_HOOK_ID,

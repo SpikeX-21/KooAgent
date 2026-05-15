@@ -689,6 +689,24 @@ internal object JsNativeInterfaceDelegates {
         }
     }
 
+    fun buildStringResultCallbackScript(callbackId: String, result: String, isError: Boolean): String {
+        val safeCallbackId = JSONObject.quote(callbackId.trim())
+        val safeResult = JSONObject.quote(result)
+        return """
+            (function() {
+                var root = typeof globalThis !== 'undefined'
+                    ? globalThis
+                    : (typeof window !== 'undefined' ? window : this);
+                var callback = root ? root[$safeCallbackId] : undefined;
+                if (typeof callback === 'function') {
+                    callback($safeResult, $isError);
+                    return;
+                }
+                console.error("Callback not found: " + $safeCallbackId);
+            })();
+        """.trimIndent()
+    }
+
     fun imageProcessing(
         callbackId: String,
         operation: String,

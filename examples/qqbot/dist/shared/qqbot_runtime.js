@@ -23,6 +23,18 @@ const qqbot_common_2 = require("./qqbot_common");
 function logQQBotRuntime(message) {
     console.log(`[qqbot_runtime] ${message}`);
 }
+function previewJson(value, maxLength = 1200) {
+    try {
+        const text = JSON.stringify(value);
+        if (typeof text !== "string") {
+            return "";
+        }
+        return text.length > maxLength ? `${text.slice(0, maxLength)}...` : text;
+    }
+    catch (_error) {
+        return "[unserializable]";
+    }
+}
 async function receiveQueuedEventsAsync(params = {}) {
     const limit = Math.min(qqbot_common_2.MAX_RECEIVE_LIMIT, (0, qqbot_common_1.parsePositiveInt)(params.limit, "limit", qqbot_common_2.DEFAULT_RECEIVE_LIMIT));
     const consume = (0, qqbot_common_1.parseOptionalBoolean)(params.consume, "consume") !== false;
@@ -136,6 +148,7 @@ async function qqbot_dashboard_status(params = {}) {
     try {
         const snapshot = await (0, qqbot_state_1.readConfigSnapshotAsync)();
         const summaryOnly = (0, qqbot_common_1.parseOptionalBoolean)(params.summary_only, "summary_only") === true;
+        logQQBotRuntime(`dashboard status start: summaryOnly=${summaryOnly}`);
         const [service, autoReply] = await Promise.all([
             (0, qqbot_service_1.buildServiceStatusAsync)({
                 snapshot,
@@ -145,6 +158,9 @@ async function qqbot_dashboard_status(params = {}) {
                 summary_only: summaryOnly
             })
         ]);
+        if (autoReply.success === false) {
+            console.error(`[qqbot_runtime] dashboard autoReply status failed: ${previewJson(autoReply)}`);
+        }
         return {
             success: true,
             packageVersion: qqbot_common_1.PACKAGE_VERSION,
@@ -155,6 +171,7 @@ async function qqbot_dashboard_status(params = {}) {
         };
     }
     catch (error) {
+        console.error(`[qqbot_runtime] dashboard status failed: ${(0, qqbot_common_1.safeErrorMessage)(error)}`);
         return {
             success: false,
             packageVersion: qqbot_common_1.PACKAGE_VERSION,

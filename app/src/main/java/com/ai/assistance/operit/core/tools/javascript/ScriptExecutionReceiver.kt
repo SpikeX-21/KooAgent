@@ -219,7 +219,10 @@ class ScriptExecutionReceiver : BroadcastReceiver() {
 
         try {
             val engine = JsEngine(context)
-            val parsedParams = parseParams(paramsJson)
+            val parsedParams =
+                parseParams(paramsJson).toMutableMap().apply {
+                    put("__operit_toolpkg_runtime_kind", "sandbox")
+                }
             val envOverrides = parseEnvFile(envFilePath)
             val result =
                 when (normalizedMode) {

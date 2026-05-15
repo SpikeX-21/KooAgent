@@ -169,13 +169,23 @@ async function queryLocalQQBotServiceStatusAsync(timeoutMs = 1200) {
     }
 }
 async function queryQueuedEventsFromServiceAsync(params = {}, timeoutMs = 4000) {
-    return await requestLocalServiceJsonOrThrow("/events/query", "POST", {
-        limit: params.limit,
-        consume: params.consume,
-        scene: params.scene,
-        eventType: params.event_type,
-        includeRaw: params.include_raw
-    }, timeoutMs);
+    const body = {};
+    if (params.limit !== undefined) {
+        body.limit = params.limit;
+    }
+    if (params.consume !== undefined) {
+        body.consume = params.consume;
+    }
+    if (params.scene !== undefined) {
+        body.scene = params.scene;
+    }
+    if (params.event_type !== undefined) {
+        body.eventType = params.event_type;
+    }
+    if (params.include_raw !== undefined) {
+        body.includeRaw = params.include_raw;
+    }
+    return await requestLocalServiceJsonOrThrow("/events/query", "POST", body, timeoutMs);
 }
 async function removeQueuedEventsFromServiceAsync(eventKeys, timeoutMs = 4000) {
     return await requestLocalServiceJsonOrThrow("/events/remove", "POST", {

@@ -1,7 +1,12 @@
 import {
     JsonObject,
     PACKAGE_VERSION,
+    QQBotActionResult,
+    QQBotAutoReplyConfigureParams,
+    QQBotAutoReplyLoopResult,
+    QQBotAutoReplyStatusResult,
     QQBotConfigSnapshot,
+    QQBotLifecycleResult,
     asText,
     firstNonBlank,
     hasOwn,
@@ -1042,7 +1047,7 @@ async function processAutoReplyQueueOnceAsync(source: string): Promise<JsonObjec
             skippedCount += 1;
             skippedItems.push({
                 eventKey,
-                reason: decision.reason
+                reason: decision.reason ?? ""
             });
             if (eventKey) {
                 await removeQueuedEventsFromServiceAsync([eventKey], 8000);
@@ -1122,7 +1127,9 @@ async function tickAutoReplyLoopAsync(source: string): Promise<void> {
     }
 }
 
-export async function ensureQQBotAutoReplyLoopStarted(source = "manual_start"): Promise<JsonObject> {
+export async function ensureQQBotAutoReplyLoopStarted(
+    source = "manual_start"
+): Promise<QQBotAutoReplyLoopResult> {
     const context = await readActiveAutoReplyContextAsync();
     if (context.disabledReason === "listener_disabled") {
         await updateAutoReplyConfigAsync({
@@ -1189,7 +1196,9 @@ export async function ensureQQBotAutoReplyLoopStarted(source = "manual_start"): 
     };
 }
 
-export async function qqbot_auto_reply_configure(params: JsonObject = {}): Promise<any> {
+export async function qqbot_auto_reply_configure(
+    params: QQBotAutoReplyConfigureParams = {}
+): Promise<QQBotActionResult> {
     try {
         const before = await readAutoReplyConfigAsync();
         const patch: JsonObject = {};
@@ -1260,7 +1269,9 @@ export async function qqbot_auto_reply_configure(params: JsonObject = {}): Promi
     }
 }
 
-export async function qqbot_auto_reply_status(params: JsonObject = {}): Promise<any> {
+export async function qqbot_auto_reply_status(
+    params: { summary_only?: boolean } = {}
+): Promise<QQBotAutoReplyStatusResult> {
     try {
         const summaryOnly = parseOptionalBoolean(params.summary_only, "summary_only") === true;
         return await buildAutoReplyStatusAsync({
@@ -1276,7 +1287,7 @@ export async function qqbot_auto_reply_status(params: JsonObject = {}): Promise<
     }
 }
 
-export async function qqbot_auto_reply_start(): Promise<any> {
+export async function qqbot_auto_reply_start(): Promise<QQBotAutoReplyLoopResult> {
     try {
         return await ensureQQBotAutoReplyLoopStarted("qqbot_auto_reply_start");
     } catch (error: unknown) {
@@ -1288,7 +1299,7 @@ export async function qqbot_auto_reply_start(): Promise<any> {
     }
 }
 
-export async function qqbot_auto_reply_stop(): Promise<any> {
+export async function qqbot_auto_reply_stop(): Promise<QQBotActionResult> {
     try {
         await stopAutoReplyLoopInternal("manual_stop");
         await flushAutoReplyStateStoreAsync();
@@ -1306,7 +1317,7 @@ export async function qqbot_auto_reply_stop(): Promise<any> {
     }
 }
 
-export async function qqbot_auto_reply_run_once(): Promise<any> {
+export async function qqbot_auto_reply_run_once(): Promise<QQBotAutoReplyLoopResult> {
     try {
         return await processAutoReplyQueueOnceAsync("qqbot_auto_reply_run_once");
     } catch (error: unknown) {
@@ -1318,7 +1329,7 @@ export async function qqbot_auto_reply_run_once(): Promise<any> {
     }
 }
 
-export async function onQQBotAutoReplyApplicationCreate(): Promise<any> {
+export async function onQQBotAutoReplyApplicationCreate(): Promise<QQBotLifecycleResult> {
     try {
         const snapshot = await readConfigSnapshotAsync();
         const config = await readAutoReplyConfigAsync();
@@ -1353,11 +1364,11 @@ export async function onQQBotAutoReplyApplicationCreate(): Promise<any> {
     }
 }
 
-export async function onQQBotAutoReplyApplicationForeground(): Promise<any> {
+export async function onQQBotAutoReplyApplicationForeground(): Promise<QQBotLifecycleResult> {
     return await onQQBotAutoReplyApplicationCreate();
 }
 
-export async function onQQBotAutoReplyApplicationTerminate(): Promise<any> {
+export async function onQQBotAutoReplyApplicationTerminate(): Promise<QQBotLifecycleResult> {
     try {
         await stopAutoReplyLoopInternal("application_terminate");
         await flushAutoReplyStateStoreAsync();

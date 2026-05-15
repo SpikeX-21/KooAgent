@@ -772,7 +772,7 @@ async function processAutoReplyQueueOnceAsync(source) {
             skippedCount += 1;
             skippedItems.push({
                 eventKey,
-                reason: decision.reason
+                reason: decision.reason ?? ""
             });
             if (eventKey) {
                 await (0, qqbot_service_1.removeQueuedEventsFromServiceAsync)([eventKey], 8000);
