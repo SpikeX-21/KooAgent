@@ -5906,7 +5906,6 @@
     <string name="memory_embedding_cloud_endpoint">向量API端点</string>
     <string name="memory_embedding_cloud_endpoint_error_blank">向量API端点不能为空</string>
     <string name="memory_embedding_cloud_endpoint_error_scheme">向量API端点必须以 http:// 或 https:// 开头</string>
-    <string name="memory_embedding_cloud_endpoint_error_whitespace">向量API端点不能包含空格或换行</string>
     <string name="memory_embedding_cloud_endpoint_error_multiple_urls">向量API端点只能填写一个URL</string>
     <string name="memory_embedding_cloud_api_key">向量API Key</string>
     <string name="memory_embedding_cloud_model">向量模型名</string>

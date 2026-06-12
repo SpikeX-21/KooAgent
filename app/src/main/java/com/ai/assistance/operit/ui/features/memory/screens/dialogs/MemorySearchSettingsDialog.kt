@@ -74,7 +74,9 @@ fun MemorySearchSettingsDialog(
     }
 
     var cloudEnabled by remember(cloudConfig) { mutableStateOf(cloudConfig.enabled) }
-    var endpoint by remember(cloudConfig) { mutableStateOf(cloudConfig.endpoint) }
+    var endpoint by remember(cloudConfig) {
+        mutableStateOf(cloudConfig.endpoint.filterNot { it.isWhitespace() })
+    }
     var apiKey by remember(cloudConfig) { mutableStateOf(cloudConfig.apiKey) }
     var model by remember(cloudConfig) { mutableStateOf(cloudConfig.model) }
     var showApiKey by remember { mutableStateOf(false) }
@@ -84,7 +86,6 @@ fun MemorySearchSettingsDialog(
     val settingsSavedMessage = stringResource(R.string.settings_saved)
     val endpointBlankError = stringResource(R.string.memory_embedding_cloud_endpoint_error_blank)
     val endpointSchemeError = stringResource(R.string.memory_embedding_cloud_endpoint_error_scheme)
-    val endpointWhitespaceError = stringResource(R.string.memory_embedding_cloud_endpoint_error_whitespace)
     val endpointMultipleUrlsError = stringResource(R.string.memory_embedding_cloud_endpoint_error_multiple_urls)
 
     val editedCloudConfig = CloudEmbeddingConfig(
@@ -198,7 +199,7 @@ fun MemorySearchSettingsDialog(
                         OutlinedTextField(
                             value = endpoint,
                             onValueChange = {
-                                endpoint = it
+                                endpoint = it.filterNot { char -> char.isWhitespace() }
                                 cloudEndpointError = null
                             },
                             modifier = Modifier.fillMaxWidth(),
@@ -319,7 +320,6 @@ fun MemorySearchSettingsDialog(
                         endpoint = endpoint,
                         blankError = endpointBlankError,
                         schemeError = endpointSchemeError,
-                        whitespaceError = endpointWhitespaceError,
                         multipleUrlsError = endpointMultipleUrlsError
                     )
                     if (cloudEnabled && endpointValidationError != null) {
@@ -479,15 +479,12 @@ private fun validateCloudEmbeddingEndpoint(
     endpoint: String,
     blankError: String,
     schemeError: String,
-    whitespaceError: String,
     multipleUrlsError: String
 ): String? {
-    val trimmed = endpoint.trim()
-    if (trimmed.isBlank()) return blankError
-    if (!trimmed.startsWith("http://") && !trimmed.startsWith("https://")) return schemeError
-    if (trimmed.any { it.isWhitespace() }) return whitespaceError
+    if (endpoint.isBlank()) return blankError
+    if (!endpoint.startsWith("http://") && !endpoint.startsWith("https://")) return schemeError
 
-    val urlMatches = Regex("https?://").findAll(trimmed).count()
+    val urlMatches = Regex("https?://").findAll(endpoint).count()
     if (urlMatches > 1) return multipleUrlsError
 
     return null

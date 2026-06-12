@@ -5687,7 +5687,6 @@
     <string name="memory_embedding_cloud_endpoint">Embedding API endpoint</string>
     <string name="memory_embedding_cloud_endpoint_error_blank">Embedding API endpoint cannot be empty</string>
     <string name="memory_embedding_cloud_endpoint_error_scheme">Embedding API endpoint must start with http:// or https://</string>
-    <string name="memory_embedding_cloud_endpoint_error_whitespace">Embedding API endpoint cannot contain spaces or line breaks</string>
     <string name="memory_embedding_cloud_endpoint_error_multiple_urls">Embedding API endpoint must contain only one URL</string>
     <string name="memory_embedding_cloud_api_key">Embedding API key</string>
     <string name="memory_embedding_cloud_model">Embedding model name</string>
