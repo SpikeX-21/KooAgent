@@ -13,7 +13,7 @@ import json
 import time
 from dataclasses import dataclass, field
 
-from openai import OpenAI, APIError, RateLimitError, APITimeoutError, APIConnectionError
+from openai import OpenAI, APIError, BadRequestError, RateLimitError, APITimeoutError, APIConnectionError
 
 
 @dataclass
@@ -54,6 +54,7 @@ class LLMResponse:
 #          platform.moonshot.ai, alibabacloud.com/help/en/model-studio
 _PRICING = {
     # OpenAI - current flagships
+    "gpt-5.5": (5, 30),
     "gpt-5.4": (2.5, 15),
     "gpt-5.4-mini": (0.75, 4.5),
     "gpt-5.4-nano": (0.2, 1.25),
@@ -122,11 +123,13 @@ class LLM:
         if tools:
             params["tools"] = tools
 
-        # stream_options is an OpenAI extension; not all providers support it
+        # stream_options is an OpenAI extension; fall back only when the provider
+        # rejects the param (400 BadRequest), not on transient errors that
+        # _call_with_retry already exhausted - otherwise we'd double the retries
+        params["stream_options"] = {"include_usage": True}
         try:
-            params["stream_options"] = {"include_usage": True}
             stream = self._call_with_retry(params)
-        except Exception:
+        except BadRequestError:
             params.pop("stream_options", None)
             stream = self._call_with_retry(params)
 
@@ -138,8 +141,10 @@ class LLM:
         for chunk in stream:
             # usage info comes in the final chunk
             if chunk.usage:
-                prompt_tok = chunk.usage.prompt_tokens
-                completion_tok = chunk.usage.completion_tokens
+                # some providers send usage with null fields; coerce to 0 so the
+                # running totals below don't blow up on int + None
+                prompt_tok = chunk.usage.prompt_tokens or 0
+                completion_tok = chunk.usage.completion_tokens or 0
 
             if not chunk.choices:
                 continue
@@ -190,14 +195,15 @@ class LLM:
         for attempt in range(max_retries):
             try:
                 return self.client.chat.completions.create(**params)
-            except (RateLimitError, APITimeoutError, APIConnectionError) as e:
+            except (RateLimitError, APITimeoutError, APIConnectionError):
                 if attempt == max_retries - 1:
                     raise
                 wait = 2 ** attempt
                 time.sleep(wait)
             except APIError as e:
-                # 5xx = server error, retry; 4xx = client error, don't
-                if e.status_code and e.status_code >= 500 and attempt < max_retries - 1:
+                # retry 5xx server errors but not 4xx; base APIError has no status_code so read it defensively
+                status_code = getattr(e, "status_code", None)
+                if status_code and status_code >= 500 and attempt < max_retries - 1:
                     time.sleep(2 ** attempt)
                 else:
                     raise
@@ -247,6 +253,9 @@ class LiteLLM(LLM):
         if tools:
             params["tools"] = tools
 
+        # ask for usage stats in the final chunk; litellm drops this for providers
+        # that don't support it (drop_params), so it's safe to always request
+        params["stream_options"] = {"include_usage": True}
         stream = self._call_with_retry(params)
 
         content_parts: list[str] = []

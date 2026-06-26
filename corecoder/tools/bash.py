@@ -10,22 +10,29 @@ Claude Code's BashTool is 1,143 lines. This is the distilled version:
 import os
 import re
 import subprocess
+import threading
 from .base import Tool
 
-# track cwd across commands (Claude Code does this too)
-_cwd: str | None = None
+# Track cwd across commands (Claude Code does this too). Thread-local, so that
+# when the agent executes tools in parallel two bash calls never race on one
+# shared global: each worker thread carries its own cwd. See article 05.
+_local = threading.local()
 
 # patterns that could wreck the filesystem or leak secrets
 _DANGEROUS_PATTERNS = [
+    # recursive delete aimed at root/home (force flag optional)
     (r"\brm\s+(-\w*)?-r\w*\s+(/|~|\$HOME)", "recursive delete on home/root"),
-    (r"\brm\s+(-\w*)?-rf\s", "force recursive delete"),
+    # recursive (-r/-R) and force (-f) flags together, in any order or spacing
+    (r"\brm\b(?=(?:.*\s)?-\w*[rR])(?=(?:.*\s)?-\w*f)", "force recursive delete"),
+    # the same, written with long-form flags
+    (r"\brm\b.*--recursive\b.*--force\b|\brm\b.*--force\b.*--recursive\b", "force recursive delete"),
     (r"\bmkfs\b", "format filesystem"),
     (r"\bdd\s+.*of=/dev/", "raw disk write"),
     (r">\s*/dev/sd[a-z]", "overwrite block device"),
     (r"\bchmod\s+(-R\s+)?777\s+/", "chmod 777 on root"),
     (r":\(\)\s*\{.*:\|:.*\}", "fork bomb"),
-    (r"\bcurl\b.*\|\s*(sudo\s+)?bash", "pipe curl to bash"),
-    (r"\bwget\b.*\|\s*(sudo\s+)?bash", "pipe wget to bash"),
+    (r"\bcurl\b.*\|\s*(sudo\s+)?(ba)?sh\b", "pipe curl to shell"),
+    (r"\bwget\b.*\|\s*(sudo\s+)?(ba)?sh\b", "pipe wget to shell"),
 ]
 
 
@@ -51,14 +58,13 @@ class BashTool(Tool):
     }
 
     def execute(self, command: str, timeout: int = 120) -> str:
-        global _cwd
         # safety check
         warning = _check_dangerous(command)
         if warning:
             return f"⚠ Blocked: {warning}\nCommand: {command}\nIf intentional, modify the command to be more specific."
 
-        # use tracked working directory
-        cwd = _cwd or os.getcwd()
+        # use this thread's own tracked working directory
+        cwd = getattr(_local, "cwd", None) or os.getcwd()
 
         try:
             proc = subprocess.run(
@@ -66,6 +72,8 @@ class BashTool(Tool):
                 shell=True,
                 capture_output=True,
                 text=True,
+                encoding="utf-8",
+                errors="replace",
                 timeout=timeout,
                 cwd=cwd,
             )
@@ -101,15 +109,19 @@ def _check_dangerous(cmd: str) -> str | None:
 
 
 def _update_cwd(command: str, current_cwd: str):
-    """Track directory changes from cd commands."""
-    global _cwd
-    # simple heuristic: look for cd at the end of a && chain or standalone
-    parts = command.split("&&")
-    for part in parts:
+    """Track directory changes from cd commands, per thread."""
+    # walk each cd in a && chain, resolving relative targets against the dir the
+    # previous cd landed in (not the original cwd) so `cd a && cd b` ends in a/b
+    running = current_cwd
+    changed = False
+    for part in command.split("&&"):
         part = part.strip()
         if part.startswith("cd "):
             target = part[3:].strip().strip("'\"")
             if target:
-                new_dir = os.path.normpath(os.path.join(current_cwd, os.path.expanduser(target)))
+                new_dir = os.path.normpath(os.path.join(running, os.path.expanduser(target)))
                 if os.path.isdir(new_dir):
-                    _cwd = new_dir
+                    running = new_dir
+                    changed = True
+    if changed:
+        _local.cwd = running

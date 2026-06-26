@@ -51,7 +51,7 @@ class GrepTool(Tool):
         matches = []
         for fp in files:
             try:
-                text = fp.read_text(errors="ignore")
+                text = fp.read_text(encoding="utf-8", errors="ignore")
             except OSError:
                 continue
             for lineno, line in enumerate(text.splitlines(), 1):
@@ -68,8 +68,9 @@ class GrepTool(Tool):
         """Walk dir tree, skipping junk dirs."""
         results = []
         for item in root.rglob(include or "*"):
-            # skip hidden/junk directories
-            if any(part in _SKIP_DIRS for part in item.parts):
+            # skip junk dirs *inside* the search root - matching item.parts would
+            # also catch an ancestor named e.g. "build" and hide the whole tree
+            if any(part in _SKIP_DIRS for part in item.relative_to(root).parts):
                 continue
             if item.is_file():
                 results.append(item)

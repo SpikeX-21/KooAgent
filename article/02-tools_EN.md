@@ -115,7 +115,7 @@ Without this check, the moment the model accidentally runs `edit_file` on a bina
 
 Tools like `read_file` and `edit_file` can only do limited damage. `bash` is different; it runs arbitrary shell commands, and the moment the model writes `rm -rf /`, the consequences are real.
 
-Claude Code's `BashTool` is 1,143 lines in public teardowns, with a command classifier, a real sandbox built on `sandbox-exec` and `seccomp`, output truncation, and interactive-command interception. CoreCoder's `bash.py` is a 126-line distillation that keeps the four most essential things: dangerous-command detection, output truncation, timeout, and working-directory tracking.
+Claude Code's `BashTool` is 1,143 lines in public teardowns, with a command classifier, a real sandbox built on `sandbox-exec` and `seccomp`, output truncation, and interactive-command interception. CoreCoder's `bash.py` is a 127-line distillation that keeps the four most essential things: dangerous-command detection, output truncation, timeout, and working-directory tracking.
 
 Dangerous-command detection is a regex blocklist:
 
@@ -127,8 +127,7 @@ _DANGEROUS_PATTERNS = [
     (r"\brm\b(?=(?:.*\s)?-\w*[rR])(?=(?:.*\s)?-\w*f)", "force recursive delete"),
     (r"\bmkfs\b", "format filesystem"),
     (r"\bdd\s+.*of=/dev/", "raw disk write"),
-    (r"\bcurl\b.*\|\s*(sudo\s+)?(ba)?sh\b", "pipe curl to shell"),
-    # ... plus fork bombs, chmod 777 on root, and so on
+    # ... plus block-device overwrite, chmod 777 on root, fork bombs, curl/wget pipe-to-shell, and so on
 ]
 ```
 

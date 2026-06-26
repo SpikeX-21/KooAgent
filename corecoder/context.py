@@ -20,7 +20,7 @@ if TYPE_CHECKING:
 
 
 def _approx_tokens(text: str) -> int:
-    """Rough token count. ~3.5 chars/token for mixed en/zh content."""
+    """Rough token count, roughly 3 chars per token for mixed en/zh content."""
     return len(text) // 3
 
 
@@ -93,14 +93,28 @@ class ContextManager:
             changed = True
         return changed
 
+    @staticmethod
+    def _safe_split(messages: list[dict], keep_recent: int) -> int:
+        """Index where the kept tail should start.
+
+        Walk the boundary back so a 'tool' result is never separated from the
+        assistant message whose tool_calls produced it - an orphaned tool
+        message has no preceding tool_calls and OpenAI-compatible APIs reject it.
+        """
+        split = max(0, len(messages) - keep_recent)
+        while split > 0 and messages[split].get("role") == "tool":
+            split -= 1
+        return split
+
     def _summarize_old(self, messages: list[dict], llm: LLM | None,
                        keep_recent: int = 8) -> bool:
         """Layer 2: Summarize old conversation, keep recent messages intact."""
         if len(messages) <= keep_recent:
             return False
 
-        old = messages[:-keep_recent]
-        tail = messages[-keep_recent:]
+        split = self._safe_split(messages, keep_recent)
+        old = messages[:split]
+        tail = messages[split:]
 
         summary = self._get_summary(old, llm)
 
@@ -118,8 +132,9 @@ class ContextManager:
 
     def _hard_collapse(self, messages: list[dict], llm: LLM | None):
         """Layer 3: Emergency compression. Keep only last 4 messages + summary."""
-        tail = messages[-4:] if len(messages) > 4 else messages[-2:]
-        summary = self._get_summary(messages[:-len(tail)], llm)
+        split = self._safe_split(messages, 4 if len(messages) > 4 else 2)
+        tail = messages[split:]
+        summary = self._get_summary(messages[:split], llm)
 
         messages.clear()
         messages.append({
@@ -176,7 +191,6 @@ class ContextManager:
         import re
         files_seen = set()
         errors = []
-        decisions = []
 
         for m in messages:
             text = m.get("content", "") or ""
@@ -185,7 +199,7 @@ class ContextManager:
                 files_seen.add(match.group())
             # extract error lines
             for line in text.splitlines():
-                if 'error' in line.lower() or 'Error' in line:
+                if "error" in line.lower():
                     errors.append(line.strip()[:150])
 
         parts = []

@@ -48,16 +48,16 @@ The second point isn't just "a missing optimization," it hides a real problem.
 
 The place concurrent execution most easily goes wrong is multiple concurrent tasks sharing the same piece of mutable state. Without protection, they step on each other.
 
-CoreCoder has a ready-made example worth holding up as a cautionary tale: bash's working-directory tracking. As mentioned before in the last piece, bash needs to remember where `cd` went across multiple commands, so it stores the current directory. The trouble is where it stored it, a module-level global variable:
+bash's working-directory tracking in CoreCoder is a perfect case in point. As the last piece mentioned, bash needs to remember where `cd` went across multiple commands, so it has to store the current directory somewhere. The most intuitive place is a module-level global variable:
 
 ```python
-# track cwd across commands (Claude Code does this too)
+# the naive way to track cwd: a module-level global
 _cwd: str | None = None
 ```
 
 Under serial execution this is no problem at all; only one bash runs at a time, and reading and writing this global is orderly. But once it reaches the parallel branch and the model returns two bash calls at once, they read and write this same `_cwd` from different threads simultaneously. One call just set it to directory A, and the other call may read exactly that A, or turn around and overwrite it to B. Two commands that should each be independent get tangled together because they shared one piece of global state. This is a textbook race: it's correct ten thousand runs in a row, and then in the one run where concurrency and timing line up badly, it hands you a baffling, hard-to-reproduce error.
 
-The clean solution is to isolate this kind of "each execution flow's own state" and not let them share. Python's ready-made tool is `threading.local()`, which gives each thread its own copy, invisible to other threads:
+So CoreCoder doesn't store it that way. The clean solution is to isolate this kind of "each execution flow's own state" and not let them share. Python's ready-made tool is `threading.local()`, which gives each thread its own copy invisible to other threads, and it's the version `bash.py` actually uses:
 
 ```python
 import threading
@@ -69,7 +69,7 @@ cwd = getattr(_local, "cwd", None) or os.getcwd()
 _local.cwd = running
 ```
 
-I pull this passage out on its own because it's a particularly good teaching point: **the moment you give an agent parallelism, you simultaneously impose a concurrency-correctness requirement on every tool that holds mutable state.** This requirement normally hides deep; you can't see the problem looking at the bash file alone, and you can't see it looking at the parallel function alone. Only by putting "bash stores cwd in a global" and "these tools get called concurrently" side by side does the hazard surface. This is exactly the kind of multi-file-spanning invariant from piece four's orphaned tool message; the most insidious bugs almost all look like this. If you intend to fork CoreCoder and add tools that write state, this is the lesson you must think through first: can your tool withstand being called by two threads at once?
+I pull this passage out on its own because it's a particularly good teaching point: **the moment you give an agent parallelism, you simultaneously impose a concurrency-correctness requirement on every tool that holds mutable state.** This requirement normally hides deep; you can't see the problem looking at the bash file alone, and you can't see it looking at the parallel function alone. Only by putting "cwd lives in a global" and "these tools get called concurrently" side by side does the hazard surface. This is exactly the kind of multi-file-spanning invariant from piece four's orphaned tool message; the most insidious bugs almost all look like this. If you intend to fork CoreCoder and add tools that write state, this is the lesson you must think through first: can your tool withstand being called by two threads at once?
 
 ## Sub-agents: spawning a clone of yourself
 
@@ -134,7 +134,7 @@ But the core motivation, "use a sub-agent with independent context to isolate he
 ## What this piece leaves you with
 
 - When the model returns multiple independent tool calls at once, running them concurrently on a thread pool is a worthwhile trade; in IO-bound scenarios a thread pool is the most effortless concurrency primitive.
-- Parallelism isn't free: it imposes a concurrency-correctness requirement on every tool that holds mutable state. bash storing cwd in a module global races under parallelism, and the fix is using `threading.local` to isolate the state per thread.
+- Parallelism isn't free: it imposes a concurrency-correctness requirement on every tool that holds mutable state. storing bash's cwd in a module global would race under parallelism, so CoreCoder isolates the state per thread with `threading.local`.
 - The most insidious bugs often span multiple files: each spot alone looks fine, and only putting two together exposes it. Before adding concurrency, ask whether each tool can withstand being called at the same time.
 - A sub-agent's primary value is context isolation, letting heavy work churn in an independent window and handing back only a distilled conclusion to the main conversation; task decomposition is secondary.
 - Forbidding sub-agent recursion trades "cutting it off cleanly" for "never out of control." It lands via the instance-level tool-set mechanism.

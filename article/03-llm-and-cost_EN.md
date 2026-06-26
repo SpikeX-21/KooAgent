@@ -2,7 +2,7 @@
 
 The last two pieces covered the loop and the tools, the agent's hands and feet. This piece covers the brain's interface: how the model gets plugged in, how streaming output is handled, how to survive a provider acting up, and a question many tutorials skip but that you'll care about on day one after going live, namely how much this round actually cost.
 
-The file is `corecoder/llm.py`, 335 lines, the largest single file in the whole project. It's large because it carries, on your behalf, all the inelegant parts of dealing with a real API.
+The file is `corecoder/llm.py`, 336 lines, the largest single file in the whole project. It's large because it carries, on your behalf, all the inelegant parts of dealing with a real API.
 
 ## A bet: everyone looks like OpenAI
 
@@ -150,7 +150,7 @@ Knowing the tokens, computing cost is just a table lookup and a multiply. `llm.p
 
 ```python
 _PRICING = {
-    "gpt-4o": (2.5, 10),          # CoreCoder's default model
+    "gpt-5.5": (5, 30),           # CoreCoder's default model
     "deepseek-chat": (0.27, 1.10),
     "claude-sonnet-4-6": (3, 15),
     "kimi-k2.5": (0.6, 3),
@@ -176,7 +176,7 @@ def estimated_cost(self) -> float | None:
 Notice the return type is `float | None`. For a model not in the table, it doesn't guess, it honestly returns `None`, and the CLI, seeing `None`, just doesn't show a price rather than inventing a number to fool you. This is a small but important honesty: better to say "I don't know" than to hand you a cost that looks precise but is made up. The CLI's `/tokens` command shows it:
 
 ```
-Tokens: 12043 prompt + 3201 completion = 15244 total  (~$0.0451)
+Tokens: 12043 prompt + 3201 completion = 15244 total  (~$0.0621)
 ```
 
 Of course this is only an estimate; the price table goes stale, and cache discounts and batch pricing aren't counted. But for a sense of "roughly how much money did this run burn," at this order of magnitude it's enough. An agent that gives you a feel for cost, versus one that makes you flinch at the bill at month's end, are two different experiences.

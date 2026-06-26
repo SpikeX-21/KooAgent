@@ -17,3 +17,59 @@ def test_default_session_ids_do_not_collide(tmp_path, monkeypatch):
         [{"role": "user", "content": "second"}],
         "model-b",
     )
+
+
+def test_session_id_path_traversal_is_neutralized(tmp_path, monkeypatch):
+    monkeypatch.setattr(session_module, "SESSIONS_DIR", tmp_path)
+
+    sid = save_session([{"role": "user", "content": "x"}], "m", "../../etc/passwd")
+
+    assert sid == "passwd"
+    assert (tmp_path / "passwd.json").exists()
+    # the same traversal string round-trips through the parent-dir boundary check
+    assert load_session("../../etc/passwd") == ([{"role": "user", "content": "x"}], "m")
+
+
+def test_session_id_absolute_path_is_stripped(tmp_path, monkeypatch):
+    monkeypatch.setattr(session_module, "SESSIONS_DIR", tmp_path)
+
+    sid = save_session([{"role": "user", "content": "x"}], "m", "/etc/shadow")
+
+    assert sid == "shadow"
+    assert (tmp_path / "shadow.json").exists()
+
+
+def test_session_id_windows_backslash_is_stripped(tmp_path, monkeypatch):
+    monkeypatch.setattr(session_module, "SESSIONS_DIR", tmp_path)
+
+    sid = save_session([{"role": "user", "content": "x"}], "m", r"..\..\secret")
+
+    assert sid == "secret"
+
+
+def test_session_id_length_is_capped(tmp_path, monkeypatch):
+    monkeypatch.setattr(session_module, "SESSIONS_DIR", tmp_path)
+
+    sid = save_session([{"role": "user", "content": "x"}], "m", "a" * 500)
+
+    assert len(sid) <= 100
+    assert (tmp_path / f"{sid}.json").exists()
+
+
+def test_corrupt_session_file_returns_none(tmp_path, monkeypatch):
+    monkeypatch.setattr(session_module, "SESSIONS_DIR", tmp_path)
+
+    (tmp_path / "broken.json").write_text("{ not valid json", encoding="utf-8")
+
+    assert load_session("broken") is None
+
+
+def test_session_roundtrips_unicode(tmp_path, monkeypatch):
+    monkeypatch.setattr(session_module, "SESSIONS_DIR", tmp_path)
+
+    msgs = [{"role": "user", "content": "请帮我修复这个 bug"}]
+    sid = save_session(msgs, "model-zh")
+
+    raw = (tmp_path / f"{sid}.json").read_bytes()
+    assert "请帮我修复这个 bug".encode("utf-8") in raw
+    assert load_session(sid) == (msgs, "model-zh")

@@ -1,12 +1,11 @@
 """Tests for the LiteLLM backend."""
 
-import json
 import types as builtin_types
 from unittest import mock
 
 import pytest
 
-from corecoder.llm import LLM, LiteLLM, LLMResponse, ToolCall
+from corecoder.llm import LLM, LiteLLM, LLMResponse
 from corecoder.config import Config
 
 
@@ -190,6 +189,13 @@ class TestChat:
         llm.chat(messages=[{"role": "user", "content": "hi"}])
         call_kwargs = self.fake.completion.call_args[1]
         assert call_kwargs["model"] == "anthropic/claude-3-haiku"
+
+    def test_requests_usage_via_stream_options(self):
+        """chat() must ask for usage stats, otherwise token tracking stays zero."""
+        llm = LiteLLM(model="openai/gpt-4o")
+        llm.chat(messages=[{"role": "user", "content": "hi"}])
+        call_kwargs = self.fake.completion.call_args[1]
+        assert call_kwargs["stream_options"] == {"include_usage": True}
 
 
 # ---------------------------------------------------------------------------

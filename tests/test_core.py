@@ -1,16 +1,14 @@
 """Tests for core modules: config, context, session, imports."""
 
-import os
-import pathlib
-
 from corecoder import Agent, LLM, Config, ALL_TOOLS, __version__
+from corecoder import session as session_module
 from corecoder.context import ContextManager, estimate_tokens
 from corecoder.session import save_session, load_session, list_sessions
 from corecoder.tools import get_tool
 
 
 def test_version():
-    assert __version__ == "0.3.0"
+    assert __version__ == "0.4.0"
 
 
 def test_public_api_exports():
@@ -21,26 +19,21 @@ def test_public_api_exports():
     assert len(ALL_TOOLS) == 7
 
 
-def test_config_from_env():
-    os.environ["CORECODER_MODEL"] = "test-model"
+def test_config_from_env(monkeypatch):
+    monkeypatch.setenv("CORECODER_MODEL", "test-model")
     c = Config.from_env()
     assert c.model == "test-model"
-    del os.environ["CORECODER_MODEL"]
 
 
-def test_config_defaults():
-    # temporarily clear relevant env vars
-    saved = {}
-    for k in ["CORECODER_MODEL", "CORECODER_MAX_TOKENS"]:
-        if k in os.environ:
-            saved[k] = os.environ.pop(k)
+def test_config_defaults(monkeypatch):
+    # clear relevant env vars without leaking the change into other tests
+    monkeypatch.delenv("CORECODER_MODEL", raising=False)
+    monkeypatch.delenv("CORECODER_MAX_TOKENS", raising=False)
 
     c = Config.from_env()
-    assert c.model == "gpt-4o"
+    assert c.model == "gpt-5.5"
     assert c.max_tokens == 4096
     assert c.temperature == 0.0
-
-    os.environ.update(saved)
 
 
 # --- Context ---
@@ -76,28 +69,55 @@ def test_context_compress():
     assert len(msgs) < 40  # should be compressed
 
 
+def test_safe_split_never_orphans_a_tool_message():
+    """The kept tail must not begin with a 'tool' message - it would be severed
+    from the assistant tool_calls that produced it, which the API rejects."""
+    ctx = ContextManager(max_tokens=1000)
+    messages = [
+        {"role": "user", "content": "do it"},
+        {"role": "assistant", "content": None, "tool_calls": [{"id": "c1"}]},
+        {"role": "tool", "tool_call_id": "c1", "content": "result"},
+        {"role": "tool", "tool_call_id": "c2", "content": "result2"},
+    ]
+    split = ctx._safe_split(messages, keep_recent=1)
+    assert messages[split].get("role") != "tool"
+
+
+def test_compress_never_leaves_an_orphan_tool_reply():
+    """After summarisation every tool reply must still follow its tool_calls."""
+    ctx = ContextManager(max_tokens=2000)
+    msgs = []
+    for i in range(20):
+        msgs.append({"role": "user", "content": f"msg {i} " + "a" * 200})
+        msgs.append({"role": "assistant", "content": None, "tool_calls": [{"id": f"c{i}"}]})
+        msgs.append({"role": "tool", "tool_call_id": f"c{i}", "content": "b" * 800})
+    ctx.maybe_compress(msgs, None)
+    for i, m in enumerate(msgs):
+        if m.get("role") == "tool":
+            prev = msgs[i - 1]
+            assert prev.get("role") == "tool" or prev.get("tool_calls"), f"orphan tool at {i}"
+
+
 # --- Session ---
 
-def test_session_save_load():
+def test_session_save_load(tmp_path, monkeypatch):
+    monkeypatch.setattr(session_module, "SESSIONS_DIR", tmp_path)
     msgs = [{"role": "user", "content": "test message"}]
-    sid = save_session(msgs, "test-model", "pytest_test_session")
+    save_session(msgs, "test-model", "pytest_test_session")
     loaded = load_session("pytest_test_session")
     assert loaded is not None
     assert loaded[0] == msgs
     assert loaded[1] == "test-model"
-    # cleanup
-    pathlib.Path.home().joinpath(".corecoder/sessions/pytest_test_session.json").unlink()
 
 
-def test_session_name_is_sanitized():
+def test_session_name_is_sanitized(tmp_path, monkeypatch):
+    monkeypatch.setattr(session_module, "SESSIONS_DIR", tmp_path)
     msgs = [{"role": "user", "content": "test message"}]
     sid = save_session(msgs, "test-model", "../Research Notes!")
 
     assert sid == "Research-Notes"
-    path = pathlib.Path.home().joinpath(".corecoder/sessions/Research-Notes.json")
-    assert path.exists()
+    assert (tmp_path / "Research-Notes.json").exists()
     assert load_session("../Research Notes!") is not None
-    path.unlink()
 
 
 def test_session_not_found():
@@ -149,5 +169,65 @@ def test_write_tracks_changed_files(tmp_path):
     write = get_tool("write_file")
     path = tmp_path / "tracked.txt"
     write.execute(file_path=str(path), content="tracked\n")
-    assert any("tracked" not in p and path.name in p for p in _changed_files) or len(_changed_files) > 0
+    assert any(path.name in p for p in _changed_files)
     _changed_files.clear()
+
+
+# --- Agent tool execution ---
+
+def test_agent_tool_scope_is_per_instance():
+    """An Agent restricted to a subset of tools must not resolve tools outside it."""
+    only_read = [get_tool("read_file")]
+    agent = Agent(llm=LLM.__new__(LLM), tools=only_read)
+    assert set(agent._tool_by_name) == {"read_file"}
+
+    class _TC:
+        name = "bash"  # a real, registered tool - but not in this agent's set
+        id = "x"
+        arguments = {"command": "echo hi"}
+
+    assert "unknown tool 'bash'" in agent._exec_tool(_TC())
+
+
+def test_exec_tool_distinguishes_bad_args_from_internal_error():
+    """A TypeError raised inside a tool must not be reported as bad arguments."""
+    from corecoder.tools.base import Tool
+
+    class _Boom(Tool):
+        name = "boom"
+        description = "raises TypeError internally"
+        parameters = {"type": "object", "properties": {}, "required": []}
+
+        def execute(self):
+            raise TypeError("internal explosion")
+
+    agent = Agent(llm=LLM.__new__(LLM), tools=[_Boom()])
+
+    class _BadArgs:
+        name, id, arguments = "boom", "1", {"unexpected": 1}
+
+    class _Good:
+        name, id, arguments = "boom", "2", {}
+
+    assert "bad arguments" in agent._exec_tool(_BadArgs())
+    assert "Error executing boom" in agent._exec_tool(_Good())
+    assert "bad arguments" not in agent._exec_tool(_Good())
+
+
+def test_interrupt_backfills_missing_tool_replies():
+    """A half-finished tool round must be repaired so history stays valid."""
+    agent = Agent(llm=LLM.__new__(LLM), tools=[])
+    agent.messages = [
+        {"role": "assistant", "content": None, "tool_calls": [{"id": "a"}, {"id": "b"}]},
+        {"role": "tool", "tool_call_id": "a", "content": "done"},
+    ]
+
+    class _TC:
+        def __init__(self, i):
+            self.id = i
+
+    agent._answer_pending_tool_calls([_TC("a"), _TC("b")])
+    replies = [m for m in agent.messages if m.get("role") == "tool"]
+    ids = [m["tool_call_id"] for m in replies]
+    assert sorted(ids) == ["a", "b"]
+    assert ids.count("a") == 1  # the already-answered call wasn't duplicated

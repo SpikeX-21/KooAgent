@@ -10,8 +10,9 @@ which means it's done working and ready to report back.
 """
 
 import concurrent.futures
+import inspect
 from .llm import LLM
-from .tools import ALL_TOOLS, get_tool
+from .tools import ALL_TOOLS
 from .tools.base import Tool
 from .tools.agent import AgentTool
 from .prompt import system_prompt
@@ -28,6 +29,7 @@ class Agent:
     ):
         self.llm = llm
         self.tools = tools if tools is not None else ALL_TOOLS
+        self._tool_by_name = {t.name: t for t in self.tools}
         self.messages: list[dict] = []
         self.context = ContextManager(max_tokens=max_context_tokens)
         self.max_rounds = max_rounds
@@ -65,25 +67,31 @@ class Agent:
             # StreamingToolExecutor which runs independent tools concurrently)
             self.messages.append(resp.message)
 
-            if len(resp.tool_calls) == 1:
-                tc = resp.tool_calls[0]
-                if on_tool:
-                    on_tool(tc.name, tc.arguments)
-                result = self._exec_tool(tc)
-                self.messages.append({
-                    "role": "tool",
-                    "tool_call_id": tc.id,
-                    "content": result,
-                })
-            else:
-                # parallel execution for multiple tool calls
-                results = self._exec_tools_parallel(resp.tool_calls, on_tool)
-                for tc, result in zip(resp.tool_calls, results):
+            try:
+                if len(resp.tool_calls) == 1:
+                    tc = resp.tool_calls[0]
+                    if on_tool:
+                        on_tool(tc.name, tc.arguments)
+                    result = self._exec_tool(tc)
                     self.messages.append({
                         "role": "tool",
                         "tool_call_id": tc.id,
                         "content": result,
                     })
+                else:
+                    # parallel execution for multiple tool calls
+                    results = self._exec_tools_parallel(resp.tool_calls, on_tool)
+                    for tc, result in zip(resp.tool_calls, results):
+                        self.messages.append({
+                            "role": "tool",
+                            "tool_call_id": tc.id,
+                            "content": result,
+                        })
+            except KeyboardInterrupt:
+                # Ctrl+C mid-execution would leave the assistant tool_calls
+                # message without replies, poisoning the next request; backfill
+                self._answer_pending_tool_calls(resp.tool_calls)
+                raise
 
             # compress if tool outputs are big
             self.context.maybe_compress(self.messages, self.llm)
@@ -92,13 +100,17 @@ class Agent:
 
     def _exec_tool(self, tc) -> str:
         """Execute a single tool call, returning the result string."""
-        tool = get_tool(tc.name)
+        tool = self._tool_by_name.get(tc.name)
         if tool is None:
             return f"Error: unknown tool '{tc.name}'"
+        # validate arguments first so a TypeError raised *inside* the tool isn't
+        # mislabelled as a bad-arguments error from the caller
         try:
-            return tool.execute(**tc.arguments)
+            inspect.signature(tool.execute).bind(**tc.arguments)
         except TypeError as e:
             return f"Error: bad arguments for {tc.name}: {e}"
+        try:
+            return tool.execute(**tc.arguments)
         except Exception as e:
             return f"Error executing {tc.name}: {e}"
 
@@ -116,6 +128,22 @@ class Agent:
         with concurrent.futures.ThreadPoolExecutor(max_workers=8) as pool:
             futures = [pool.submit(self._exec_tool, tc) for tc in tool_calls]
             return [f.result() for f in futures]
+
+    def _answer_pending_tool_calls(self, tool_calls):
+        """Backfill a tool reply for every call that didn't get one.
+
+        OpenAI-compatible APIs reject a request where an assistant message has
+        tool_calls without a matching tool reply for each id, so this keeps the
+        history valid when execution is interrupted partway through.
+        """
+        answered = {m.get("tool_call_id") for m in self.messages if m.get("role") == "tool"}
+        for tc in tool_calls:
+            if tc.id not in answered:
+                self.messages.append({
+                    "role": "tool",
+                    "tool_call_id": tc.id,
+                    "content": "[interrupted]",
+                })
 
     def reset(self):
         """Clear conversation history."""

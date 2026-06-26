@@ -20,7 +20,7 @@ That last line should show 86 tests all green. Don't skip this step. It confirms
 
 ## Step one: plug in your own model
 
-CoreCoder defaults to `gpt-4o`, but you may not want to use it. Piece three covered this: switching models means switching environment variables. During development I strongly suggest a local Ollama first, costing nothing, free to mess with:
+CoreCoder defaults to `gpt-5.5`, but you may not want to use it. Piece three covered this: switching models means switching environment variables. During development I strongly suggest a local Ollama first, costing nothing, free to mess with:
 
 ```bash
 # install Ollama, pull a coder model
@@ -146,7 +146,7 @@ print(report)
 
 This `reviewer` is an agent safe enough that you'd dare run it inside automation. It can read through and search the entire codebase, but it can't change a single byte or run a single command, because those tools simply aren't in its tool set. This is exactly the usage planted back when piece one stressed "the tool set is instance-level": the cleanest way to constrain what an agent can do isn't to write a pile of rules begging it not to misbehave, but to withhold the capability at the source. The tools you give it are the whole boundary of what it can do.
 
-Used as a library, you can build far more than a CLI: a review bot running in CI, a chat endpoint hooked into a web backend, a script batch-processing a heap of repos. The kernel is those 1712 lines, and what shell you wrap around it is up to you.
+Used as a library, you can build far more than a CLI: a review bot running in CI, a chat endpoint hooked into a web backend, a script batch-processing a heap of repos. The kernel is just over a thousand lines, and what shell you wrap around it is up to you.
 
 ## Step five: pair your change with a test
 
@@ -169,7 +169,7 @@ CoreCoder is a starting point, not a destination. It deliberately leaves blanks 
 
 - **Put a real sandbox on bash.** Piece two said it plainly, the regex blocklist is only a guard against slips, not a security boundary. To face untrusted input, you need `seccomp` or container-level isolation.
 - **Add a fallback model and a hard dollar budget.** Piece three covered how CoreCoder deliberately skipped these two, because they drag in provider-specific logic. For a production deployment, these two eventually have to be added.
-- **Make concurrency finer-grained.** Piece five's shared-state hazard in bash's cwd, and distinguishing whether a tool "reads" or "writes" to decide whether it can run concurrently, are both worth filling in seriously.
+- **Make concurrency finer-grained.** Piece five's point about distinguishing whether a tool "reads" or "writes" to decide whether it can run concurrently is something CoreCoder still doesn't do, and is worth filling in seriously.
 - **Hook up MCP.** Let your agent plug into the Model Context Protocol tool ecosystem, instantly connecting to a large batch of ready-made external capabilities.
 - **Give sub-agents more modes.** Piece five mentioned Claude Code's sub-agents can run in an independent worktree or in the background, while CoreCoder only did the most plain synchronous one.
 
@@ -179,7 +179,7 @@ Pick one you genuinely need and do it. Don't let the length of the list make you
 
 If this series leaves you with only one thing, I hope it's this: a coding agent is less mysterious than it seems, it's just a stack of engineering decisions you can fully reach, piled up.
 
-Looking back over the six pieces, it's really only a few blocks. A capped loop (piece one), plus a set of clean-interfaced tools that let it act (piece two). The model interface is a thin provider wrapper (piece three), and context fights forgetting with layered compression (piece four). It can split itself and run concurrently, on the strength of restraint about shared state (piece five); the outermost CLI emits events, handles presentation, and plugs the path-traversal hole while it's at it (piece six). Add it up to 1712 lines, with not a single spot you can't understand.
+Looking back over the six pieces, it's really only a few blocks. A capped loop (piece one), plus a set of clean-interfaced tools that let it act (piece two). The model interface is a thin provider wrapper (piece three), and context fights forgetting with layered compression (piece four). It can split itself and run concurrently, on the strength of restraint about shared state (piece five); the outermost CLI emits events, handles presentation, and plugs the path-traversal hole while it's at it (piece six). The engine adds up to just over a thousand lines, and even with that CLI shell on top the whole package is only 1714, with not a single spot you can't understand.
 
 Now you don't just understand it, you've forked it, plugged in your own model, added your own tool, and tuned its own temperament. It's yours.
 

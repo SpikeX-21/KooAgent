@@ -12,6 +12,7 @@ from pathlib import Path
 
 SESSIONS_DIR = Path.home() / ".corecoder" / "sessions"
 _SAFE_SESSION_RE = re.compile(r"[^A-Za-z0-9._-]+")
+_MAX_SESSION_ID_LEN = 100  # keep filenames comfortably under the OS limit
 
 
 def _normalize_session_id(session_id: str | None) -> str:
@@ -20,6 +21,8 @@ def _normalize_session_id(session_id: str | None) -> str:
 
     name = session_id.strip().replace("\\", "/").split("/")[-1]
     name = _SAFE_SESSION_RE.sub("-", name).strip(".-_")
+    if len(name) > _MAX_SESSION_ID_LEN:
+        name = name[:_MAX_SESSION_ID_LEN].strip(".-_")
     return name or _new_session_id()
 
 
@@ -49,7 +52,7 @@ def save_session(messages: list[dict], model: str, session_id: str | None = None
     }
 
     path = _session_path(session_id)
-    path.write_text(json.dumps(data, ensure_ascii=False, indent=2))
+    path.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
     return session_id
 
 
@@ -59,8 +62,12 @@ def load_session(session_id: str) -> tuple[list[dict], str] | None:
     if not path.exists():
         return None
 
-    data = json.loads(path.read_text())
-    return data["messages"], data["model"]
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+        return data["messages"], data["model"]
+    except (json.JSONDecodeError, KeyError, OSError):
+        # a corrupt or truncated session file shouldn't crash resume
+        return None
 
 
 def list_sessions() -> list[dict]:
@@ -71,7 +78,7 @@ def list_sessions() -> list[dict]:
     sessions = []
     for f in sorted(SESSIONS_DIR.glob("*.json"), reverse=True):
         try:
-            data = json.loads(f.read_text())
+            data = json.loads(f.read_text(encoding="utf-8"))
             # grab first user message as preview
             preview = ""
             for m in data.get("messages", []):

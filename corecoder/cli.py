@@ -25,7 +25,7 @@ def _parse_args():
         prog="corecoder",
         description="Minimal AI coding agent. Works with any OpenAI-compatible LLM.",
     )
-    p.add_argument("-m", "--model", help="Model name (default: $CORECODER_MODEL or gpt-4o)")
+    p.add_argument("-m", "--model", help="Model name (default: $CORECODER_MODEL or gpt-5.5)")
     p.add_argument("--base-url", help="API base URL (default: $OPENAI_BASE_URL)")
     p.add_argument("--api-key", help="API key (default: $OPENAI_API_KEY)")
     p.add_argument("-p", "--prompt", help="One-shot prompt (non-interactive mode)")
@@ -103,7 +103,14 @@ def _run_once(agent: Agent, prompt: str):
     def on_tool(name, kwargs):
         console.print(f"\n[dim]> {name}({_brief(kwargs)})[/dim]")
 
-    agent.chat(prompt, on_token=on_token, on_tool=on_tool)
+    try:
+        agent.chat(prompt, on_token=on_token, on_tool=on_tool)
+    except KeyboardInterrupt:
+        console.print("\n[yellow]Interrupted.[/yellow]")
+        sys.exit(130)
+    except Exception as e:
+        console.print(f"\n[red]Error: {e}[/red]")
+        sys.exit(1)
     print()
 
 
@@ -206,6 +213,11 @@ def _repl(agent: Agent, config: Config):
             else:
                 for s in sessions:
                     console.print(f"  [cyan]{s['id']}[/cyan] ({s['model']}, {s['saved_at']}) {s['preview']}")
+            continue
+
+        # an unknown /command shouldn't be sent to the model as a prompt
+        if user_input.startswith("/"):
+            console.print(f"[yellow]Unknown command: {user_input.split()[0]} (try /help)[/yellow]")
             continue
 
         # call the agent
