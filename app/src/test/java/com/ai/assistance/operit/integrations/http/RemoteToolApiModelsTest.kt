@@ -15,6 +15,16 @@ class RemoteToolApiModelsTest {
         val allowlist = RemoteToolApiContract.MINIMAL_REMOTE_TOOL_ALLOWLIST
 
         assertTrue(allowlist.contains("sleep"))
+        assertTrue(allowlist.contains("start_app"))
+        assertTrue(allowlist.contains("capture_screenshot"))
+        assertTrue(allowlist.contains("get_page_info"))
+        assertTrue(allowlist.contains("tap"))
+        assertTrue(allowlist.contains("long_press"))
+        assertTrue(allowlist.contains("swipe"))
+        assertTrue(allowlist.contains("click_element"))
+        assertTrue(allowlist.contains("set_input_text"))
+        assertTrue(allowlist.contains("press_key"))
+        assertTrue(allowlist.contains("run_ui_subagent"))
         assertTrue(allowlist.contains("list_files"))
         assertTrue(allowlist.contains("read_file"))
         assertTrue(allowlist.contains("visit_web"))

@@ -22,7 +22,7 @@ Mac 主机
 
 Trace 文件：
 
-- `Operit/docs/golden_traces/remote_tool_golden_2026-07-12.jsonl`
+- `Operit/docs/golden_test/golden_traces/remote_tool_golden_2026-07-12.jsonl`
 
 ## 测试环境
 

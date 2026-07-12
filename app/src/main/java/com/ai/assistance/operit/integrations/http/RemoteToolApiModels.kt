@@ -7,6 +7,16 @@ import kotlinx.serialization.Serializable
 object RemoteToolApiContract {
     val MINIMAL_REMOTE_TOOL_ALLOWLIST = setOf(
             "list_installed_apps",
+            "start_app",
+            "capture_screenshot",
+            "get_page_info",
+            "tap",
+            "long_press",
+            "swipe",
+            "click_element",
+            "set_input_text",
+            "press_key",
+            "run_ui_subagent",
             "sleep",
             "use_package",
             "list_files",

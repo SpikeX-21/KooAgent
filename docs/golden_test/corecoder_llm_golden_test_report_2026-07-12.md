@@ -32,7 +32,7 @@ conda run -n corecoder corecoder \
 
 Trace 文件：
 
-- `Operit/docs/golden_traces/corecoder_llm_golden_rerun_2026-07-12.jsonl`
+- `Operit/docs/golden_test/golden_traces/corecoder_llm_golden_rerun_2026-07-12.jsonl`
 
 ## 测试环境
 
