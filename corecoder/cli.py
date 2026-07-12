@@ -28,6 +28,8 @@ def _parse_args():
     p.add_argument("-m", "--model", help="Model name (default: $CORECODER_MODEL or gpt-5.5)")
     p.add_argument("--base-url", help="API base URL (default: $OPENAI_BASE_URL)")
     p.add_argument("--api-key", help="API key (default: $OPENAI_API_KEY)")
+    p.add_argument("--operit-url", help="Operit Android Runtime URL (default: $OPERIT_URL)")
+    p.add_argument("--operit-token", help="Operit Bearer token (default: $OPERIT_TOKEN)")
     p.add_argument("-p", "--prompt", help="One-shot prompt (non-interactive mode)")
     p.add_argument("-r", "--resume", metavar="ID", help="Resume a saved session")
     p.add_argument("-v", "--version", action="version", version=f"%(prog)s {__version__}")
@@ -45,6 +47,10 @@ def main():
         config.base_url = args.base_url
     if args.api_key:
         config.api_key = args.api_key
+    if args.operit_url:
+        config.operit_url = args.operit_url
+    if args.operit_token:
+        config.operit_token = args.operit_token
 
     if not config.api_key:
         console.print("[red bold]No API key found.[/]")
@@ -70,7 +76,16 @@ def main():
         temperature=config.temperature,
         max_tokens=config.max_tokens,
     )
-    agent = Agent(llm=llm, max_context_tokens=config.max_context_tokens)
+    tools = None
+    if config.operit_url and config.operit_token:
+        from .tools import ALL_TOOLS
+        from .tools.android_remote import AndroidRemoteTool
+
+        tools = ALL_TOOLS + [
+            AndroidRemoteTool(base_url=config.operit_url, bearer_token=config.operit_token)
+        ]
+
+    agent = Agent(llm=llm, tools=tools, max_context_tokens=config.max_context_tokens)
 
     # resume saved session
     if args.resume:

@@ -34,6 +34,8 @@ class Config:
     temperature: float = 0.0
     max_context_tokens: int = 128_000
     provider: str = "openai"
+    operit_url: str | None = None
+    operit_token: str = ""
 
     @classmethod
     def from_env(cls) -> "Config":
@@ -54,4 +56,6 @@ class Config:
             temperature=float(os.getenv("CORECODER_TEMPERATURE", "0")),
             max_context_tokens=int(os.getenv("CORECODER_MAX_CONTEXT", "128000")),
             provider=os.getenv("CORECODER_PROVIDER", "openai"),
+            operit_url=os.getenv("OPERIT_URL"),
+            operit_token=os.getenv("OPERIT_TOKEN", ""),
         )
