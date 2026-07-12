@@ -193,6 +193,129 @@ _OPERIT_TOOL_SPECS = [
         parameters=_schema({}),
     ),
     OperitToolSpec(
+        local_name="android_start_app",
+        remote_name="start_app",
+        description="Launch an installed Android app by package name through Operit.",
+        parameters=_schema(
+            {"package_name": _string("Android package name, e.g. com.android.settings")},
+            ["package_name"],
+        ),
+    ),
+    OperitToolSpec(
+        local_name="android_capture_screenshot",
+        remote_name="capture_screenshot",
+        description="Capture the current Android screen through Operit and return the screenshot path.",
+        parameters=_schema({}),
+    ),
+    OperitToolSpec(
+        local_name="android_get_page_info",
+        remote_name="get_page_info",
+        description="Get current Android page/window UI information through Operit.",
+        parameters=_schema(
+            {
+                "format": _string("optional: xml or json, default xml"),
+                "detail": _string("optional detail level, default summary"),
+                "display": _string("optional display id for multi-display"),
+            },
+        ),
+    ),
+    OperitToolSpec(
+        local_name="android_tap",
+        remote_name="tap",
+        description="Tap a point on the Android screen through Operit.",
+        parameters=_schema(
+            {
+                "x": _integer("x coordinate in screen pixels"),
+                "y": _integer("y coordinate in screen pixels"),
+                "display": _string("optional display id for multi-display"),
+            },
+            ["x", "y"],
+        ),
+    ),
+    OperitToolSpec(
+        local_name="android_long_press",
+        remote_name="long_press",
+        description="Long press a point on the Android screen through Operit.",
+        parameters=_schema(
+            {
+                "x": _integer("x coordinate in screen pixels"),
+                "y": _integer("y coordinate in screen pixels"),
+                "display": _string("optional display id for multi-display"),
+            },
+            ["x", "y"],
+        ),
+    ),
+    OperitToolSpec(
+        local_name="android_swipe",
+        remote_name="swipe",
+        description="Swipe from one Android screen coordinate to another through Operit.",
+        parameters=_schema(
+            {
+                "start_x": _integer("start x coordinate in screen pixels"),
+                "start_y": _integer("start y coordinate in screen pixels"),
+                "end_x": _integer("end x coordinate in screen pixels"),
+                "end_y": _integer("end y coordinate in screen pixels"),
+                "duration": _integer("optional duration in milliseconds, default 300"),
+                "display": _string("optional display id for multi-display"),
+            },
+            ["start_x", "start_y", "end_x", "end_y"],
+        ),
+    ),
+    OperitToolSpec(
+        local_name="android_click_element",
+        remote_name="click_element",
+        description="Click an Android UI element by resource id, class name, content description, or bounds through Operit.",
+        parameters=_schema(
+            {
+                "resourceId": _string("optional Android resource id selector"),
+                "className": _string("optional Android class name selector"),
+                "contentDesc": _string("optional content description selector"),
+                "bounds": _string("optional bounds selector, format: [left,top][right,bottom]"),
+                "partialMatch": _boolean("optional partial selector matching"),
+                "index": _integer("optional matched element index, default 0"),
+                "display": _string("optional display id for multi-display"),
+            },
+        ),
+    ),
+    OperitToolSpec(
+        local_name="android_set_input_text",
+        remote_name="set_input_text",
+        description="Set text into the currently focused Android input field through Operit.",
+        parameters=_schema(
+            {
+                "text": _string("text to input into the focused field; empty string clears"),
+                "display": _string("optional display id for multi-display"),
+            },
+            ["text"],
+        ),
+    ),
+    OperitToolSpec(
+        local_name="android_press_key",
+        remote_name="press_key",
+        description="Press an Android key code through Operit, e.g. KEYCODE_BACK.",
+        parameters=_schema(
+            {
+                "key_code": _string("Android key code string, e.g. KEYCODE_BACK or KEYCODE_HOME"),
+                "display": _string("optional display id for multi-display"),
+            },
+            ["key_code"],
+        ),
+    ),
+    OperitToolSpec(
+        local_name="android_run_ui_subagent",
+        remote_name="run_ui_subagent",
+        description="Run Operit's lightweight Android UI automation subagent.",
+        parameters=_schema(
+            {
+                "intent": _string("UI automation task description"),
+                "max_steps": _integer("optional maximum UI subagent steps, default 20"),
+                "agent_id": _string("optional UI agent session id; default uses the main screen"),
+                "target_app": _string("optional target app package name"),
+            },
+            ["intent"],
+        ),
+    ),
+    OperitToolSpec(
         local_name="android_sleep",
         remote_name="sleep",
         description="Pause briefly on the Android runtime.",

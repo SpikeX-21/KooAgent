@@ -126,7 +126,38 @@ def test_create_operit_tools_exposes_builtin_android_tools():
 
     assert "android_list_installed_apps" in names
     assert "android_sleep" in names
+    assert "android_start_app" in names
+    assert "android_capture_screenshot" in names
+    assert "android_get_page_info" in names
+    assert "android_tap" in names
+    assert "android_long_press" in names
+    assert "android_swipe" in names
+    assert "android_click_element" in names
+    assert "android_set_input_text" in names
+    assert "android_press_key" in names
+    assert "android_run_ui_subagent" in names
     assert "android_list_files" in names
     assert "android_read_file" in names
     assert "android_visit_web" in names
     assert "android_query_memory" in names
+
+
+def test_android_ui_remote_tools_map_to_operit_names():
+    module = load_android_remote_module()
+
+    tools = module.create_operit_tools(base_url="http://127.0.0.1:8094", bearer_token="secret")
+    by_name = {tool.name: tool for tool in tools}
+
+    assert by_name["android_start_app"].spec.remote_name == "start_app"
+    assert by_name["android_capture_screenshot"].spec.remote_name == "capture_screenshot"
+    assert by_name["android_get_page_info"].spec.remote_name == "get_page_info"
+    assert by_name["android_tap"].spec.remote_name == "tap"
+    assert by_name["android_long_press"].spec.remote_name == "long_press"
+    assert by_name["android_swipe"].spec.remote_name == "swipe"
+    assert by_name["android_click_element"].spec.remote_name == "click_element"
+    assert by_name["android_set_input_text"].spec.remote_name == "set_input_text"
+    assert by_name["android_press_key"].spec.remote_name == "press_key"
+    assert by_name["android_run_ui_subagent"].spec.remote_name == "run_ui_subagent"
+    assert by_name["android_press_key"].parameters["required"] == ["key_code"]
+    assert by_name["android_swipe"].parameters["required"] == ["start_x", "start_y", "end_x", "end_y"]
+    assert by_name["android_run_ui_subagent"].parameters["required"] == ["intent"]
