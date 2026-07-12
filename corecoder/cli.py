@@ -30,6 +30,7 @@ def _parse_args():
     p.add_argument("--api-key", help="API key (default: $OPENAI_API_KEY)")
     p.add_argument("--operit-url", help="Operit Android Runtime URL (default: $OPERIT_URL)")
     p.add_argument("--operit-token", help="Operit Bearer token (default: $OPERIT_TOKEN)")
+    p.add_argument("--trace-jsonl", help="Write agent-loop trace events to this JSONL file")
     p.add_argument("-p", "--prompt", help="One-shot prompt (non-interactive mode)")
     p.add_argument("-r", "--resume", metavar="ID", help="Resume a saved session")
     p.add_argument("-v", "--version", action="version", version=f"%(prog)s {__version__}")
@@ -79,13 +80,25 @@ def main():
     tools = None
     if config.operit_url and config.operit_token:
         from .tools import ALL_TOOLS
-        from .tools.android_remote import AndroidRemoteTool
+        from .tools.android_remote import create_operit_tools
 
-        tools = ALL_TOOLS + [
-            AndroidRemoteTool(base_url=config.operit_url, bearer_token=config.operit_token)
-        ]
+        tools = ALL_TOOLS + create_operit_tools(
+            base_url=config.operit_url,
+            bearer_token=config.operit_token,
+        )
 
-    agent = Agent(llm=llm, tools=tools, max_context_tokens=config.max_context_tokens)
+    tracer = None
+    if args.trace_jsonl:
+        from .tracing import JsonlTraceWriter
+
+        tracer = JsonlTraceWriter(args.trace_jsonl)
+
+    agent = Agent(
+        llm=llm,
+        tools=tools,
+        max_context_tokens=config.max_context_tokens,
+        tracer=tracer,
+    )
 
     # resume saved session
     if args.resume:

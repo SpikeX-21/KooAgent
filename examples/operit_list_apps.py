@@ -10,7 +10,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from corecoder.tools.android_remote import AndroidRemoteTool
+from corecoder.tools.android_remote import OperitDeviceClient
 
 
 def main():
@@ -19,8 +19,11 @@ def main():
     if not url or not token:
         raise SystemExit("Set OPERIT_URL and OPERIT_TOKEN first.")
 
-    tool = AndroidRemoteTool(base_url=url, bearer_token=token)
-    print(tool.execute())
+    device = OperitDeviceClient(base_url=url, bearer_token=token)
+    result = device.list_installed_apps()
+    if not result.success:
+        raise SystemExit(result.error or "Operit tool call failed")
+    print(result.result_text)
 
 
 if __name__ == "__main__":

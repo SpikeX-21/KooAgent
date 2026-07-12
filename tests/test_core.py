@@ -1,9 +1,13 @@
 """Tests for core modules: config, context, session, imports."""
 
+import json
+
 from corecoder import Agent, LLM, Config, ALL_TOOLS, __version__
 from corecoder import session as session_module
 from corecoder.context import ContextManager, estimate_tokens
+from corecoder.llm import LLMResponse, ToolCall
 from corecoder.session import save_session, load_session, list_sessions
+from corecoder.tracing import JsonlTraceWriter
 from corecoder.tools import get_tool
 
 
@@ -231,3 +235,57 @@ def test_interrupt_backfills_missing_tool_replies():
     ids = [m["tool_call_id"] for m in replies]
     assert sorted(ids) == ["a", "b"]
     assert ids.count("a") == 1  # the already-answered call wasn't duplicated
+
+
+def test_jsonl_trace_records_tool_result_and_final_answer(tmp_path):
+    """Trace output should record the agent-loop facts golden tests need."""
+    from corecoder.tools.base import Tool
+
+    class _Echo(Tool):
+        name = "echo"
+        description = "echoes text"
+        parameters = {
+            "type": "object",
+            "properties": {"text": {"type": "string"}},
+            "required": ["text"],
+        }
+
+        def execute(self, text: str):
+            return f"echo result: {text}"
+
+    class _FakeLLM:
+        total_prompt_tokens = 0
+        total_completion_tokens = 0
+        estimated_cost = None
+
+        def __init__(self):
+            self.responses = [
+                LLMResponse(tool_calls=[ToolCall(id="call-1", name="echo", arguments={"text": "hello"})]),
+                LLMResponse(content="FINAL_ANSWER: done"),
+            ]
+
+        def chat(self, messages, tools=None, on_token=None):
+            return self.responses.pop(0)
+
+    trace_path = tmp_path / "trace.jsonl"
+    agent = Agent(
+        llm=_FakeLLM(),
+        tools=[_Echo()],
+        tracer=JsonlTraceWriter(trace_path, preview_chars=20),
+    )
+
+    assert agent.chat("run it") == "FINAL_ANSWER: done"
+
+    events = [json.loads(line) for line in trace_path.read_text().splitlines()]
+    tool_event = next(event for event in events if event["event"] == "tool_result")
+    final_event = next(event for event in events if event["event"] == "final_answer")
+
+    assert tool_event["tool_call_id"] == "call-1"
+    assert tool_event["tool_name"] == "echo"
+    assert tool_event["arguments"] == {"text": "hello"}
+    assert tool_event["success"] is True
+    assert tool_event["error"] == ""
+    assert tool_event["result_preview"] == "echo result: hello"
+    assert "started_at" in tool_event
+    assert "finished_at" in tool_event
+    assert final_event["answer"] == "FINAL_ANSWER: done"

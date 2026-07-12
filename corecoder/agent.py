@@ -17,6 +17,7 @@ from .tools.base import Tool
 from .tools.agent import AgentTool
 from .prompt import system_prompt
 from .context import ContextManager
+from .tracing import TraceSink, utc_now_iso
 
 
 class Agent:
@@ -26,6 +27,7 @@ class Agent:
         tools: list[Tool] | None = None,
         max_context_tokens: int = 128_000,
         max_rounds: int = 50,
+        tracer: TraceSink | None = None,
     ):
         self.llm = llm
         self.tools = tools if tools is not None else ALL_TOOLS
@@ -33,6 +35,7 @@ class Agent:
         self.messages: list[dict] = []
         self.context = ContextManager(max_tokens=max_context_tokens)
         self.max_rounds = max_rounds
+        self.tracer = tracer
         self._system = system_prompt(self.tools)
 
         # wire up sub-agent capability
@@ -51,7 +54,7 @@ class Agent:
         self.messages.append({"role": "user", "content": user_input})
         self.context.maybe_compress(self.messages, self.llm)
 
-        for _ in range(self.max_rounds):
+        for round_index in range(1, self.max_rounds + 1):
             resp = self.llm.chat(
                 messages=self._full_messages(),
                 tools=self._tool_schemas(),
@@ -61,6 +64,8 @@ class Agent:
             # no tool calls -> LLM is done, return text
             if not resp.tool_calls:
                 self.messages.append(resp.message)
+                if self.tracer:
+                    self.tracer.final_answer(round_index=round_index, answer=resp.content)
                 return resp.content
 
             # tool calls -> execute (parallel when multiple, like Claude Code's
@@ -72,7 +77,7 @@ class Agent:
                     tc = resp.tool_calls[0]
                     if on_tool:
                         on_tool(tc.name, tc.arguments)
-                    result = self._exec_tool(tc)
+                    result = self._exec_tool(tc, round_index=round_index)
                     self.messages.append({
                         "role": "tool",
                         "tool_call_id": tc.id,
@@ -80,7 +85,7 @@ class Agent:
                     })
                 else:
                     # parallel execution for multiple tool calls
-                    results = self._exec_tools_parallel(resp.tool_calls, on_tool)
+                    results = self._exec_tools_parallel(resp.tool_calls, on_tool, round_index)
                     for tc, result in zip(resp.tool_calls, results):
                         self.messages.append({
                             "role": "tool",
@@ -96,25 +101,56 @@ class Agent:
             # compress if tool outputs are big
             self.context.maybe_compress(self.messages, self.llm)
 
-        return "(reached maximum tool-call rounds)"
+        answer = "(reached maximum tool-call rounds)"
+        if self.tracer:
+            self.tracer.max_steps(max_rounds=self.max_rounds, answer=answer)
+        return answer
 
-    def _exec_tool(self, tc) -> str:
+    def _exec_tool(self, tc, round_index: int | None = None) -> str:
         """Execute a single tool call, returning the result string."""
+        started_at = utc_now_iso()
+        result = ""
+        success = False
+        error = ""
         tool = self._tool_by_name.get(tc.name)
-        if tool is None:
-            return f"Error: unknown tool '{tc.name}'"
-        # validate arguments first so a TypeError raised *inside* the tool isn't
-        # mislabelled as a bad-arguments error from the caller
         try:
-            inspect.signature(tool.execute).bind(**tc.arguments)
-        except TypeError as e:
-            return f"Error: bad arguments for {tc.name}: {e}"
-        try:
-            return tool.execute(**tc.arguments)
-        except Exception as e:
-            return f"Error executing {tc.name}: {e}"
+            if tool is None:
+                result = f"Error: unknown tool '{tc.name}'"
+                error = result
+                return result
+            # validate arguments first so a TypeError raised *inside* the tool isn't
+            # mislabelled as a bad-arguments error from the caller
+            try:
+                inspect.signature(tool.execute).bind(**tc.arguments)
+            except TypeError as e:
+                result = f"Error: bad arguments for {tc.name}: {e}"
+                error = result
+                return result
+            try:
+                result = tool.execute(**tc.arguments)
+                success = not _looks_like_error_result(result)
+                if not success:
+                    error = result
+                return result
+            except Exception as e:
+                result = f"Error executing {tc.name}: {e}"
+                error = result
+                return result
+        finally:
+            if self.tracer:
+                self.tracer.tool_result(
+                    round_index=round_index or 0,
+                    tool_call_id=tc.id,
+                    tool_name=tc.name,
+                    arguments=tc.arguments,
+                    started_at=started_at,
+                    finished_at=utc_now_iso(),
+                    success=success,
+                    error=error,
+                    result_text=result,
+                )
 
-    def _exec_tools_parallel(self, tool_calls, on_tool=None) -> list[str]:
+    def _exec_tools_parallel(self, tool_calls, on_tool=None, round_index: int | None = None) -> list[str]:
         """Run multiple tool calls concurrently using threads.
 
         This is inspired by Claude Code's StreamingToolExecutor which starts
@@ -126,7 +162,7 @@ class Agent:
                 on_tool(tc.name, tc.arguments)
 
         with concurrent.futures.ThreadPoolExecutor(max_workers=8) as pool:
-            futures = [pool.submit(self._exec_tool, tc) for tc in tool_calls]
+            futures = [pool.submit(self._exec_tool, tc, round_index) for tc in tool_calls]
             return [f.result() for f in futures]
 
     def _answer_pending_tool_calls(self, tool_calls):
@@ -148,3 +184,7 @@ class Agent:
     def reset(self):
         """Clear conversation history."""
         self.messages.clear()
+
+
+def _looks_like_error_result(result: str) -> bool:
+    return result.startswith("Error:") or result.startswith("Error executing ") or result.startswith("Error from ")
