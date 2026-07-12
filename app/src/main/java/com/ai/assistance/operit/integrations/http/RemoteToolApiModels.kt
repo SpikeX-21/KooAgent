@@ -5,7 +5,26 @@ import com.ai.assistance.operit.data.model.ToolParameter
 import kotlinx.serialization.Serializable
 
 object RemoteToolApiContract {
-    val MINIMAL_REMOTE_TOOL_ALLOWLIST = setOf("list_installed_apps")
+    val MINIMAL_REMOTE_TOOL_ALLOWLIST = setOf(
+            "list_installed_apps",
+            "sleep",
+            "use_package",
+            "list_files",
+            "read_file",
+            "read_file_part",
+            "apply_file",
+            "create_file",
+            "edit_file",
+            "delete_file",
+            "make_directory",
+            "find_files",
+            "grep_code",
+            "grep_context",
+            "visit_web",
+            "download_file",
+            "query_memory",
+            "get_memory_by_title"
+    )
 }
 
 @Serializable

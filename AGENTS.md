@@ -3,6 +3,7 @@
 ## 执行准则
 - 默认不要执行编译、构建或测试命令。
 - 只有在用户明确要求时，才执行编译/构建/测试（例如 `./gradlew :app:compileDebugKotlin`、`npm run build`、`pnpm run build`）。
+- 后续测试报告、调试报告、验证报告默认使用中文撰写，除非用户明确要求使用其他语言。
 - Operit 的 Android 编译/测试必须使用 Android Studio 自带 JDK 21：
   `JAVA_HOME="/Applications/Android Studio.app/Contents/jbr/Contents/Home"`。
   运行 Gradle 时使用同一条规则，例如：
