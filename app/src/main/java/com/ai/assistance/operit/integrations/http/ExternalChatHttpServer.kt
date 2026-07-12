@@ -46,6 +46,7 @@ class ExternalChatHttpServer(
     private val appContext = context.applicationContext
     private val executor = ExternalChatRequestExecutor(appContext)
     private val webChatBridge = WebChatHttpBridge(appContext, preferences, serviceScope)
+    private val remoteToolApiHandler = RemoteToolApiHandler(appContext)
     private val callbackClient = OkHttpClient.Builder()
         .retryOnConnectionFailure(false)
         .build()
@@ -74,6 +75,9 @@ class ExternalChatHttpServer(
             session.method == Method.OPTIONS -> handleOptions(session)
             session.uri == HEALTH_PATH && session.method == Method.GET -> handleHealth(session)
             session.uri == CHAT_PATH && session.method == Method.POST -> handleChat(session)
+            session.uri == DEVICE_HEALTH_PATH && session.method == Method.GET -> handleDeviceHealth(session)
+            session.uri == DEVICE_TOOLS_PATH && session.method == Method.GET -> handleDeviceTools(session)
+            session.uri == DEVICE_TOOL_CALL_PATH && session.method == Method.POST -> handleDeviceToolCall(session)
             session.uri.startsWith(WEB_API_PREFIX) -> webChatBridge.handleApi(session)
             !session.uri.startsWith(API_PREFIX) -> webChatBridge.serveStatic(session)
             else -> jsonResponse(
@@ -96,6 +100,43 @@ class ExternalChatHttpServer(
 
     private fun handleOptions(session: IHTTPSession): Response {
         return newFixedLengthResponse(Response.Status.OK, MIME_PLAINTEXT, "").withCors()
+    }
+
+    private fun handleDeviceHealth(session: IHTTPSession): Response {
+        val unauthorized = requireBearerToken(session)
+        if (unauthorized != null) {
+            return unauthorized
+        }
+        return remoteToolApiHandler.handleDeviceHealth().withCors()
+    }
+
+    private fun handleDeviceTools(session: IHTTPSession): Response {
+        val unauthorized = requireBearerToken(session)
+        if (unauthorized != null) {
+            return unauthorized
+        }
+        return remoteToolApiHandler.handleListTools().withCors()
+    }
+
+    private fun handleDeviceToolCall(session: IHTTPSession): Response {
+        val unauthorized = requireBearerToken(session)
+        if (unauthorized != null) {
+            return unauthorized
+        }
+
+        val requestBodyResult = readRequestBody(session)
+        // 返回错误信息
+        if (requestBodyResult.error != null) {
+            return jsonResponse(
+                Response.Status.BAD_REQUEST,
+                ExternalChatResult(
+                    success = false,
+                    error = requestBodyResult.error
+                )
+            ).withCors()
+        }
+        // 处理外部请求
+        return remoteToolApiHandler.handleToolCall(requestBodyResult.body.orEmpty()).withCors()
     }
 
     private fun handleHealth(session: IHTTPSession): Response {
@@ -544,6 +585,9 @@ class ExternalChatHttpServer(
         private const val API_PREFIX = "/api"
         private const val CHAT_PATH = "/api/external-chat"
         private const val HEALTH_PATH = "/api/health"
+        private const val DEVICE_HEALTH_PATH = "/api/device/health"
+        private const val DEVICE_TOOLS_PATH = "/api/device/tools"
+        private const val DEVICE_TOOL_CALL_PATH = "/api/device/tool-call"
         private const val WEB_API_PREFIX = "/api/web/"
         private const val JSON_MIME_TYPE = "application/json; charset=utf-8"
         private const val SSE_MIME_TYPE = "text/event-stream; charset=utf-8"

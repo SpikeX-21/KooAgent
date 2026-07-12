@@ -41,7 +41,7 @@ METADATA
             "parameters": [
                 {
                     "name": "sessionId",
-                    "description": { "zh": "可选目标会话ID。不传则使用默认会话 super_admin_default_session。", "en": "Optional target session ID. If omitted, uses default session super_admin_default_session." },
+                    "description": { "zh": "可选目标会话ID。不传则使用当前对话的默认会话；无 chatId 时为 super_admin_default_session。", "en": "Optional target session ID. If omitted, uses the current chat's default session; without chatId it is super_admin_default_session." },
                     "type": "string",
                     "required": false
                 },
@@ -263,7 +263,7 @@ const superAdmin = (function () {
     /**
      * 等待同一终端会话中的上一条命令执行完成
      * 原理：向同会话追加一个内部 marker 命令。由于会话按序执行，marker 开始执行即代表前序命令已完成。
-     * @param sessionId - 可选会话ID；不传时使用 super_admin_default_session
+     * @param sessionId - 可选会话ID；不传时使用当前对话的默认会话，无 chatId 时为 super_admin_default_session
      * @param timeoutMs - 可选超时（毫秒，最低 3000ms）；未传默认 300000ms
      */
     async function terminal_wait(params = {}) {
