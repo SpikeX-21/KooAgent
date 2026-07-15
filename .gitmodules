@@ -1,0 +1,30 @@
+[submodule "Operit/terminal"]
+	path = Operit/terminal
+	url = https://github.com/AAswordman/OperitTerminalCore.git
+[submodule "Operit/mnn/src/main/cpp/MNN"]
+	path = Operit/mnn/src/main/cpp/MNN
+	url = https://github.com/alibaba/MNN.git
+[submodule "Operit/tools/hotbuild/OperitNightlyRelease"]
+	path = Operit/tools/hotbuild/OperitNightlyRelease
+	url = git@github.com:AAswordman/OperitNightlyRelease.git
+[submodule "Operit/llama/third_party/llama.cpp"]
+	path = Operit/llama/third_party/llama.cpp
+	url = https://github.com/ggml-org/llama.cpp
+[submodule "Operit/mmd/third_party/saba"]
+	path = Operit/mmd/third_party/saba
+	url = https://github.com/benikabocha/saba.git
+[submodule "Operit/mmd/third_party/bullet3"]
+	path = Operit/mmd/third_party/bullet3
+	url = https://github.com/bulletphysics/bullet3.git
+[submodule "Operit/app/src/main/cpp/thirdparty/ncnn"]
+	path = Operit/app/src/main/cpp/thirdparty/ncnn
+	url = https://github.com/Tencent/ncnn.git
+[submodule "Operit/app/src/main/cpp/thirdparty/sherpa-ncnn"]
+	path = Operit/app/src/main/cpp/thirdparty/sherpa-ncnn
+	url = https://github.com/k2-fsa/sherpa-ncnn.git
+[submodule "Operit/quickjs/thirdparty/quickjs"]
+	path = Operit/quickjs/thirdparty/quickjs
+	url = https://github.com/bellard/quickjs.git
+[submodule "Operit/fbx/third_party/ufbx"]
+	path = Operit/fbx/third_party/ufbx
+	url = https://github.com/ufbx/ufbx.git
