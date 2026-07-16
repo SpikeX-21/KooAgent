@@ -2,6 +2,7 @@
 	"extends": "../../../pi/tsconfig.base.json",
 	"compilerOptions": {
 		"noEmit": true,
+		"typeRoots": ["../../../pi/node_modules/@types"],
 		"paths": {
 			"@earendil-works/pi-ai": ["../../../pi/packages/ai/dist/index.d.ts"],
 			"@earendil-works/pi-agent-core": [
