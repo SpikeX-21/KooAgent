@@ -12,7 +12,9 @@ Pi must trust the KooAgent project before it loads project-local extensions.
 
 ## Configuration
 
-Set the connection values in the shell that starts Pi:
+The extension includes local development defaults for the current Operit
+instance, so no environment variables are required for the checked-out setup.
+Environment variables can still override them:
 
 ```bash
 export OPERIT_URL="http://127.0.0.1:8094"

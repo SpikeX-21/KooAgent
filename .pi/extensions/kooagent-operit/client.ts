@@ -39,7 +39,10 @@ type Fetch = (
 	init?: RequestInit,
 ) => Promise<Response>;
 
+// Local development defaults for the connected Operit instance. Environment
+// variables still take precedence, so a different device can override them.
 const DEFAULT_BASE_URL = "http://127.0.0.1:8094";
+const DEFAULT_BEARER_TOKEN = "51c3ba7f20c149e499ce5de8c2e2ed0f";
 const DEFAULT_TIMEOUT_MS = 15_000;
 
 export class OperitToolCallError extends Error {
@@ -60,7 +63,7 @@ export function loadOperitConfig(
 	const baseUrl = (env.OPERIT_URL || DEFAULT_BASE_URL)
 		.trim()
 		.replace(/\/+$/, "");
-	const bearerToken = (env.OPERIT_TOKEN || "").trim();
+	const bearerToken = (env.OPERIT_TOKEN || DEFAULT_BEARER_TOKEN).trim();
 	const timeoutMs = parseTimeoutMs(env.OPERIT_TIMEOUT_MS);
 
 	const url = new URL(baseUrl);
