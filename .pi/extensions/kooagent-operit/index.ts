@@ -1,24 +1,26 @@
+import { randomUUID } from "node:crypto";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { type TSchema, Type } from "typebox";
-import {
-	callOperitTool,
-	getOperitHealth,
-	loadOperitConfig,
-	type OperitToolCallResponse,
-} from "./client.ts";
+import { callOperitTool, getOperitHealth, loadOperitConfig } from "./client.ts";
+import { executeWithTransportRetry } from "./execution-policy.ts";
+import type { JsonValue, OperitRemoteToolRequest } from "./protocol.ts";
+import { createAgentToolResult, isOperitToolDetails } from "./result-mapper.ts";
 import { OPERIT_TOOL_SPECS, type OperitParameterSpec } from "./tool-specs.ts";
+import { writeOperitTrace } from "./trace-writer.ts";
 
-interface OperitToolDetails {
-	requestId?: string;
-	toolName: string;
-	latencyMs: number;
-	resultJson?: string;
-	response: OperitToolCallResponse;
+interface RunTraceState {
+	runId: string;
+	traceId: string;
+	turnIndex: number;
+	remainingTransportRetries: number;
 }
 
 export default function kooagentOperitExtension(pi: ExtensionAPI) {
+	let traceState = createRunTraceState();
+
 	for (const spec of OPERIT_TOOL_SPECS) {
 		const parameters = createParametersSchema(spec.parameters);
+		const policy = spec.policy;
 		pi.registerTool({
 			name: spec.localName,
 			label: spec.localName,
@@ -29,39 +31,50 @@ export default function kooagentOperitExtension(pi: ExtensionAPI) {
 				"Inspect Android state again after UI-changing actions instead of assuming the action succeeded.",
 			],
 			parameters,
-			executionMode: "sequential",
-			async execute(toolCallId, params, signal) {
-				const response = await callOperitTool(
-					loadOperitConfig(),
-					{
-						requestId: toolCallId,
-						toolName: spec.remoteName,
-						arguments: params as Record<string, unknown>,
+			executionMode: policy.executionMode,
+			async execute(toolCallId, params, signal, _onUpdate, ctx) {
+				const config = loadOperitConfig();
+				const request: OperitRemoteToolRequest = {
+					protocolVersion: 2,
+					trace: {
+						sessionId: ctx.sessionManager.getSessionId(),
+						runId: traceState.runId,
+						turnIndex: traceState.turnIndex,
+						traceId: traceState.traceId,
+						toolCallId,
+						executionId: randomUUID(),
+						attempt: 1,
 					},
-					signal,
+					toolName: spec.remoteName,
+					arguments: params as Record<string, JsonValue>,
+					timeoutMs: config.timeoutMs,
+				};
+				const execution = await executeWithTransportRetry(
+					policy,
+					async () => await callOperitTool(config, request, signal),
+					() => {
+						if (traceState.remainingTransportRetries === 0) return false;
+						traceState.remainingTransportRetries -= 1;
+						return true;
+					},
 				);
-
-				const details: OperitToolDetails = {
-					requestId: response.requestId,
-					toolName: response.toolName,
-					latencyMs: response.latencyMs,
-					resultJson: response.resultJson,
-					response,
-				};
-				return {
-					content: [
-						{
-							type: "text",
-							text:
-								response.resultText ||
-								`${response.toolName} completed successfully`,
-						},
-					],
-					details,
-				};
+				const outcome = execution.outcome;
+				await writeOperitTrace(
+					process.env.OPERIT_TRACE_FILE,
+					outcome,
+					execution.transportAttempts,
+				);
+				return createAgentToolResult(outcome);
 			},
 		});
 	}
+
+	pi.on("tool_result", (event) => {
+		if (!isOperitToolDetails(event.details)) return;
+		return {
+			isError: event.details.outcome.status !== "SUCCEEDED",
+		};
+	});
 
 	pi.registerCommand("operit-status", {
 		description: "Check the configured Operit Android runtime connection",
@@ -74,6 +87,7 @@ export default function kooagentOperitExtension(pi: ExtensionAPI) {
 					health.success ? "info" : "warning",
 				);
 			} catch (error) {
+				console.error("Operit status command failed", error);
 				ctx.ui.notify(
 					error instanceof Error ? error.message : String(error),
 					"error",
@@ -85,13 +99,30 @@ export default function kooagentOperitExtension(pi: ExtensionAPI) {
 	pi.on("session_start", (_event, ctx) => {
 		ctx.ui.setStatus(
 			"kooagent-operit",
-			`Operit · ${OPERIT_TOOL_SPECS.length} Android tools`,
+			`Operit · ${OPERIT_TOOL_SPECS.length} Android tools · protocol v2`,
 		);
+	});
+
+	pi.on("agent_start", () => {
+		traceState = createRunTraceState();
+	});
+
+	pi.on("turn_start", (event) => {
+		traceState.turnIndex = event.turnIndex;
 	});
 
 	pi.on("session_shutdown", (_event, ctx) => {
 		ctx.ui.setStatus("kooagent-operit", undefined);
 	});
+}
+
+function createRunTraceState(): RunTraceState {
+	return {
+		runId: randomUUID(),
+		traceId: randomUUID().replaceAll("-", ""),
+		turnIndex: 0,
+		remainingTransportRetries: 3,
+	};
 }
 
 function createParametersSchema(parameters: OperitParameterSpec[]) {
