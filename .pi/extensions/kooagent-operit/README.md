@@ -41,7 +41,9 @@ From the KooAgent repository root:
 ./pi/pi-test.sh
 ```
 
-Approve the project trust prompt once. The extension registers the 28 `android_*` tools currently exposed by the CoreCoder adapter.
+Approve the project trust prompt once. The extension registers 27 `android_*`
+tools. `run_ui_subagent` is intentionally not exposed because Agent orchestration
+belongs to Pi.
 
 Use the following command inside Pi to check connectivity without asking the model to call a tool:
 
@@ -53,12 +55,27 @@ Use the following command inside Pi to check connectivity without asking the mod
 
 - Pi tool names keep the `android_` prefix.
 - Remote Operit names remain unchanged.
-- Pi's `toolCallId` is sent as the remote `requestId`.
-- Operit arguments are converted to `Map<String, String>` compatible values.
-- The request carries `timeoutMs` and propagates Pi's cancellation signal.
-- Android tools execute sequentially in Pi because they share device state.
-- Successful responses retain the complete Operit response in tool `details`.
-- Operit business failures and HTTP/timeout failures are raised as Pi tool errors.
+- The Extension and Operit use the unpublished v2 remote execution protocol.
+- Arguments remain typed JSON across the HTTP seam.
+- Every request carries session, run, turn, trace, tool-call, execution, and
+  attempt identifiers.
+- Operit returns one structured outcome with `status`, model-facing `content`,
+  structured `data`, error classification, timing, and runtime metadata.
+- Expected business, HTTP, timeout, cancellation, and protocol failures are
+  returned from the tool instead of thrown. The Extension's `tool_result` hook
+  maps every non-`SUCCEEDED` status to Pi's `isError=true` while preserving
+  complete details. Failed outcomes also prepend a compact `[OPERIT_TOOL_ERROR]`
+  block to model-visible content with `status`, `code`, `category`, `retryable`,
+  `userActionRequired`, and `message`, so the model can choose a recovery action
+  without receiving the complete details payload. The projected message is
+  bounded to 1,024 characters; malformed failures without an error object use
+  conservative non-retryable INTERNAL defaults.
+- Read-only tools may execute in parallel. Safe reads and keyed writes can
+  repeat one transient transport request with the same `executionId`, subject
+  to a per-run retry budget. Unsafe device mutations stay sequential and are
+  never retried automatically.
+- Set `OPERIT_TRACE_FILE` to write bounded JSONL completion traces. Tool
+  arguments and large result data are not written to this trace.
 
 ## Tests
 

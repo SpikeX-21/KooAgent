@@ -78,6 +78,10 @@ class ExternalChatHttpServer(
             session.uri == DEVICE_HEALTH_PATH && session.method == Method.GET -> handleDeviceHealth(session)
             session.uri == DEVICE_TOOLS_PATH && session.method == Method.GET -> handleDeviceTools(session)
             session.uri == DEVICE_TOOL_CALL_PATH && session.method == Method.POST -> handleDeviceToolCall(session)
+            session.uri.startsWith(DEVICE_TOOL_EXECUTIONS_PREFIX) && session.method == Method.GET ->
+                handleDeviceToolExecution(session, cancel = false)
+            session.uri.startsWith(DEVICE_TOOL_EXECUTIONS_PREFIX) && session.method == Method.DELETE ->
+                handleDeviceToolExecution(session, cancel = true)
             session.uri.startsWith(WEB_API_PREFIX) -> webChatBridge.handleApi(session)
             !session.uri.startsWith(API_PREFIX) -> webChatBridge.serveStatic(session)
             else -> jsonResponse(
@@ -125,18 +129,33 @@ class ExternalChatHttpServer(
         }
 
         val requestBodyResult = readRequestBody(session)
-        // 返回错误信息
         if (requestBodyResult.error != null) {
-            return jsonResponse(
-                Response.Status.BAD_REQUEST,
-                ExternalChatResult(
-                    success = false,
-                    error = requestBodyResult.error
-                )
+            return remoteToolApiHandler.handleInvalidRequest(
+                code = "REQUEST_BODY_READ_FAILED",
+                message = "Failed to read request body"
             ).withCors()
         }
-        // 处理外部请求
         return remoteToolApiHandler.handleToolCall(requestBodyResult.body.orEmpty()).withCors()
+    }
+
+    private fun handleDeviceToolExecution(session: IHTTPSession, cancel: Boolean): Response {
+        val unauthorized = requireBearerToken(session)
+        if (unauthorized != null) {
+            return unauthorized
+        }
+        val executionId = session.uri.removePrefix(DEVICE_TOOL_EXECUTIONS_PREFIX)
+        if (executionId.isBlank() || executionId.contains('/')) {
+            return remoteToolApiHandler.handleInvalidRequest(
+                code = "INVALID_EXECUTION_ID",
+                message = "A valid executionId is required"
+            ).withCors()
+        }
+        val response = if (cancel) {
+            remoteToolApiHandler.handleExecutionCancellation(executionId)
+        } else {
+            remoteToolApiHandler.handleExecutionStatus(executionId)
+        }
+        return response.withCors()
     }
 
     private fun handleHealth(session: IHTTPSession): Response {
@@ -588,6 +607,7 @@ class ExternalChatHttpServer(
         private const val DEVICE_HEALTH_PATH = "/api/device/health"
         private const val DEVICE_TOOLS_PATH = "/api/device/tools"
         private const val DEVICE_TOOL_CALL_PATH = "/api/device/tool-call"
+        private const val DEVICE_TOOL_EXECUTIONS_PREFIX = "/api/device/tool-executions/"
         private const val WEB_API_PREFIX = "/api/web/"
         private const val JSON_MIME_TYPE = "application/json; charset=utf-8"
         private const val SSE_MIME_TYPE = "text/event-stream; charset=utf-8"

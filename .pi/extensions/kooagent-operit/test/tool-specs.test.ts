@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { OPERIT_TOOL_SPECS } from "../tool-specs.ts";
 
-test("tool catalog preserves the 28 CoreCoder Operit tools", () => {
+test("tool catalog exposes the 27 supported Operit runtime tools", () => {
 	const expectedEntries = [
 		["android_list_installed_apps", "list_installed_apps"],
 		["android_start_app", "start_app"],
@@ -14,7 +14,6 @@ test("tool catalog preserves the 28 CoreCoder Operit tools", () => {
 		["android_click_element", "click_element"],
 		["android_set_input_text", "set_input_text"],
 		["android_press_key", "press_key"],
-		["android_run_ui_subagent", "run_ui_subagent"],
 		["android_sleep", "sleep"],
 		["android_use_package", "use_package"],
 		["android_list_files", "list_files"],
@@ -56,9 +55,7 @@ test("UI tools keep their Operit names and required arguments", () => {
 	assert.deepEqual(requiredNames(byName.get("android_press_key")), [
 		"key_code",
 	]);
-	assert.deepEqual(requiredNames(byName.get("android_run_ui_subagent")), [
-		"intent",
-	]);
+	assert.equal(byName.has("android_run_ui_subagent"), false);
 });
 
 function requiredNames(
