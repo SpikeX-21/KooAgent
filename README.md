@@ -1,212 +1,138 @@
 # KooAgent
 
-KooAgent 是一个用于验证“云端/桌面 agent 大脑 + Android 运行态工具系统”的集成仓库。
+KooAgent 是一个以 **pi-agent 为主 Agent**、以 Operit 为 Android 远程工具运行态的集成仓库。
 
-这个仓库把两个独立项目放在同一条集成线上：
-
-- `CoreCoder`：最小 agent loop / agent 大脑示例，负责理解自然语言任务、生成 tool call、接收工具结果并继续推理。
-- `Operit`：Android runtime 工具执行系统，负责在手机运行态执行文件、应用、网络、记忆库等工具。
-
-项目目标不是把所有能力塞进一个 App，而是把职责拆开：
+pi-agent 负责理解任务、选择工具、安排执行顺序、处理失败并继续推理；在 **Remote Tool API v2 集成路径**中，Operit 不承担远程 Agent 调度，只在 Android 设备上执行被批准的原子工具，并返回可关联、可追踪的结构化结果。
 
 ```text
-Agent 大脑（CoreCoder / 云端 agent / 其他 LLM agent）
--> 远程工具调用协议
--> Android 运行态（Operit）
--> 手机上真实工具执行
--> 结构化结果返回给 Agent
--> Agent 继续规划或给出 final_answer
+用户任务
+  -> pi-agent（规划、tool call、错误恢复）
+  -> KooAgent Operit Extension（协议适配、结果映射、trace）
+  -> Operit Remote Tool API v2
+  -> Android 运行态（27 个原子工具）
+  -> v2 structured outcome
+  -> pi-agent ToolResultMessage
+  -> LLM 决定下一步或输出最终答复
 ```
 
-## 为什么这样设计
+## 职责边界
 
-传统手机 AI 助手通常把“模型推理”和“设备执行”绑在同一个 Android 应用里。KooAgent 探索的是另一种形态：
+| 组件 | 职责 |
+| --- | --- |
+| `pi/` | 主 Agent：模型调用、工具选择、并发与顺序控制、失败后的继续规划。KooAgent 不修改 pi 源码。 |
+| `.pi/extensions/kooagent-operit/` | 将 Pi 的 `android_*` 工具适配为 Operit Remote Tool API v2；生成 trace 上下文、校验回包、映射 `content` / `details` / `isError`。 |
+| `Operit/` | Android 远程执行器：校验 27 个工具的 allowlist 和参数、执行原子工具、维护执行状态与取消请求、返回结构化 outcome。 |
 
-- agent 大脑可以在云端、桌面或其他更强的执行环境中运行。
-- Android 设备只承担运行态和工具执行职责。
-- 工具能力通过远程 API 暴露，像本地函数一样被 agent 调用。
-- 手机端保留对文件、应用、网络和设备上下文的真实访问能力。
+`android_run_ui_subagent` / `run_ui_subagent` 被刻意排除：子 Agent 编排属于 pi-agent，而不是设备端运行态。
 
-这让 Operit 更像一个 Android runtime，而 CoreCoder 或其他 agent 则承担 planner / reasoning / orchestration 的角色。
+## 当前能力
 
-## 当前链路
+- 27 个 `android_*` 原子工具通过项目内 Pi extension 自动注册。
+- 采用未发布即升级的 Remote Tool API v2，不保留 v1 兼容逻辑。
+- 每次调用都带有 `sessionId`、`runId`、`turnIndex`、`traceId`、`toolCallId`、`executionId`、`attempt`，可贯穿 Pi 会话与 Android 执行。
+- Operit 支持幂等执行、执行状态查询和取消请求。
+- 扩展对回包关联字段、工具名和协议版本进行校验；传输/协议异常也归一为工具结果。
+- 只对可重试 `UNAVAILABLE` 的安全读操作和带幂等键的写操作执行有限重试；危险设备写操作保持顺序执行且不自动重试。
+- 可配置 JSONL trace，且默认不记录工具参数、完整结果或图片数据。
 
-当前已验证的最小链路如下：
+## 工具结果如何回到模型
 
-```text
-电脑上的 CoreCoder
--> AndroidRemoteTool / OperitDeviceClient
--> HTTP POST http://127.0.0.1:8094/api/device/tool-call
--> adb forward tcp:8094 tcp:8094
--> 手机上的 Operit ExternalChatHttpServer
--> RemoteToolApiHandler
--> AIToolHandler.executeTool(...)
--> Operit 内置工具
--> ToolResult
--> HTTP JSON 返回给 CoreCoder
--> LLM 继续推理并输出 FINAL_ANSWER
+Operit 为每次已接受调用返回 `RemoteToolOutcomeV2`：
+
+```ts
+{
+  protocolVersion: 2,
+  trace: { /* session/run/trace/tool-call/execution/attempt IDs */ },
+  toolName: "list_installed_apps",
+  status: "SUCCEEDED" | "FAILED" | "REJECTED" | "TIMED_OUT" | "CANCELLED" | "UNAVAILABLE",
+  content: [/* text / image / artifact */],
+  data: {/* 可选结构化数据 */},
+  error: {/* 可选 code/category/retryable/userActionRequired/message */},
+  timing: {/* accepted/started/finished/duration */},
+  runtime: {/* Android runtime metadata */}
+}
 ```
 
-已经验证过的工具包括：
+Extension 将它映射为 Pi 的 `AgentToolResult` / `ToolResultMessage`：
 
-- `list_files`
-- `find_files`
-- `read_file`
-- `read_file_part`
-- `sleep`
-- `list_installed_apps`
+- `content` 是唯一送回 LLM 的结果内容。
+- `details` 保留有大小约束的 outcome，服务于 UI、日志与 trace，不作为模型上下文；过大的 `data` 会被省略并标记该省略。
+- 任意非 `SUCCEEDED` 状态都会设置 `isError: true`。
+- 失败时，`content` 会首先包含紧凑的 `[OPERIT_TOOL_ERROR]` 摘要（状态、错误码、类别、是否可重试、是否需要用户操作、消息），随后保留工具原始内容。这样 LLM 无需读取 `details` 也能选择恢复动作。
 
-CoreCoder 侧暴露给 LLM 的工具名使用 `android_` 前缀，例如：
+## 快速开始
 
-```text
-android_list_files
-android_find_files
-android_read_file
-android_read_file_part
-android_sleep
-```
+### 1. 准备 Android 运行态
 
-## 仓库结构
-
-```text
-KooAgent/
-  CoreCoder/   # agent loop 与远程 Android 工具 SDK
-  Operit/      # Android runtime 与 Remote Tool API
-```
-
-两个目录仍然保留各自原项目的 Git 历史和开发节奏。`SpikeX-21/KooAgent` 用作集成与备份仓库。
-
-## 分支约定
-
-当前集成线使用：
-
-```text
-feature/remote-tool-minimal-loop
-```
-
-由于 `Operit` 和 `CoreCoder` 是两个独立代码库，在 `SpikeX-21/KooAgent` 中使用项目前缀分支：
-
-```text
-operit/feature-remote-tool-minimal-loop
-corecoder/feature-remote-tool-minimal-loop
-```
-
-顶层 `main` 分支用于保存稳定的集成快照。
-
-详细 Git 规范见：
-
-- [`GIT_MANAGEMENT.md`](GIT_MANAGEMENT.md)
-
-## 快速运行链路
-
-### 1. 启动手机侧 Operit
-
-在 Android 手机上安装并打开 Operit，开启外部 HTTP 调用能力，获取 token。
-
-通过 adb 转发端口：
+在手机上安装并打开 Operit，启用外部 HTTP 调用能力。通过 USB 连接时转发端口：
 
 ```bash
 adb forward tcp:8094 tcp:8094
 ```
 
-检查手机侧 Remote Tool API：
+如需覆盖项目本地连接配置，使用环境变量（不要将 token 提交到仓库）：
 
 ```bash
-curl -H "Authorization: Bearer <OPERIT_TOKEN>" \
-  http://127.0.0.1:8094/api/device/health
+export OPERIT_URL="http://127.0.0.1:8094"
+export OPERIT_TOKEN="<token shown by Operit>"
+export OPERIT_TIMEOUT_MS="15000"
+export OPERIT_TRACE_FILE="/tmp/operit-trace.jsonl" # 可选
 ```
 
-### 2. 在 CoreCoder 中调用 Android 工具
-
-CoreCoder 必须在 `corecoder` conda 环境中运行：
+检查连接：
 
 ```bash
-conda activate corecoder
-cd CoreCoder
-
-corecoder \
-  --operit-url "http://127.0.0.1:8094" \
-  --operit-token "<OPERIT_TOKEN>" \
-  --trace-jsonl "/tmp/corecoder-operit-trace.jsonl"
+curl -H "Authorization: Bearer ${OPERIT_TOKEN}" \
+  "${OPERIT_URL}/api/device/health"
 ```
 
-一次性的 golden test 示例：
+### 2. 启动 pi-agent
+
+在仓库根目录运行：
 
 ```bash
-corecoder \
-  --operit-url "http://127.0.0.1:8094" \
-  --operit-token "<OPERIT_TOKEN>" \
-  --trace-jsonl "/tmp/corecoder-operit-trace.jsonl" \
-  -p "请只使用 Android Runtime 远程工具，检查 /sdcard/Download/Operit 目录，并在最后输出 FINAL_ANSWER。"
+./pi/pi-test.sh
 ```
 
-## Trace 与测试报告
-
-CoreCoder 支持：
-
-```bash
---trace-jsonl <path>
-```
-
-它会记录 agent loop 里的关键事件：
-
-- `tool_call_id`
-- `tool_name`
-- `arguments`
-- `started_at`
-- `finished_at`
-- `success`
-- `error`
-- `result_preview`
-- `final_answer`
-
-这让 golden test 不再依赖终端输出反推工具结果，而是可以直接分析结构化 JSONL。
-
-Operit 侧的测试报告和 trace 位于：
+首次运行时允许 Pi 信任该项目，使其加载 `.pi/extensions/kooagent-operit`。启动后可执行：
 
 ```text
-Operit/docs/
-Operit/docs/golden_traces/
+/operit-status
 ```
 
-## 当前验证状态
+该命令只检查 Operit 连通性；正常对话中由 pi-agent 决定何时调用 `android_*` 工具。
 
-已经完成的验证：
+## Remote Tool API v2
 
-- Remote Tool API 可以列出允许暴露的 Android 工具。
-- CoreCoder 可以通过 LLM 生成 `android_*` 工具调用。
-- 工具调用可以通过 adb forward 到达手机上的 Operit。
-- 多步工具调用可以连续执行。
-- 工具级失败不会导致 server 或 CoreCoder 崩溃。
-- CoreCoder 可以写出 JSONL trace。
+设备端端点如下：
 
-已发现的改进点：
+| 方法 | 路径 | 用途 |
+| --- | --- | --- |
+| `GET` | `/api/device/health` | 健康与协议版本检查。 |
+| `GET` | `/api/device/tools` | 获取当前允许的 27 个工具。 |
+| `POST` | `/api/device/tool-call` | 提交一次 v2 工具执行。 |
+| `GET` | `/api/device/tool-executions/{executionId}` | 查询执行状态或复用后的结果。 |
+| `DELETE` | `/api/device/tool-executions/{executionId}` | 请求取消正在执行的任务。 |
 
-- LLM 有时完成工具调用后没有输出明确 final answer，需要在 prompt 或 agent 约束中强化 `FINAL_ANSWER:` 收束格式。
-- CLI 当前只展示工具名和参数，结构化 trace 已经补上结果观测能力。
-- 后续可把 Remote Tool API 进一步抽象成 MCP/RPC 风格接口，让远程工具更像本地函数调用。
+所有设备端点都需要现有的 Bearer Token。详细请求/响应契约见 [Operit Remote Tool API v2 实现说明](Operit/docs/remote_tool_api_v2_implementation.md)。
 
-## 后续方向
+## 验证与文档
 
-短期目标：
+- Extension 测试：
 
-- 扩大 Android 内置工具的 golden test 覆盖。
-- 为写文件、下载、网页访问等高风险工具增加更严格的 allowlist 与 trace。
-- 把 CoreCoder 的 trace schema 稳定下来，便于自动回归测试。
+  ```bash
+  ./pi/node_modules/.bin/tsx --test .pi/extensions/kooagent-operit/test/*.test.ts
+  ```
 
-中期目标：
+- [端到端测试报告（默认 `kimi-k2.5`）](Operit/docs/reports/2026-07-21-kimi-k25-full-e2e.md)
+- [多工具执行报告](Operit/docs/reports/2026-07-21-llm-multitool-e2e.md)
+- [架构与执行闭环](remote-tool-api-and-minimal-agent-loop.md)
+- [Android 设备调试指南](Operit/docs/remote_tool_corecoder_debug.md)
+- [Extension 配置与策略](.pi/extensions/kooagent-operit/README.md)
 
-- 将 Operit 作为独立 Android runtime 暴露给更多 agent。
-- 评估 MCP/RPC 风格协议封装，降低调用链路心智负担。
-- 增加会话级权限、审计、失败恢复和工具结果脱敏。
+## 开发约束
 
-长期目标：
-
-- 让任意外部 agent 大脑都可以安全、可观测地调用 Android 运行态能力。
-- 形成一套“云端智能 + 端侧执行”的开放实验框架。
-
-## 开发备注
-
-- Operit Android 编译/测试使用 Android Studio 自带 JDK 21。
-- CoreCoder 运行使用 conda 环境 `corecoder`。
-- 报告、调试记录和 golden test 文档默认使用中文。
+- 不修改 pi-agent 源码；边界适配只放在项目内 Extension 与 Operit HTTP 层。
+- 在 Remote Tool API v2 集成路径中，Operit 只做运行态工具执行，不做远程 Agent 规划或调度。
+- 新增工具时，先明确其幂等性、并发策略、重试语义、权限边界与结果映射，再加入 27 工具 allowlist。
+- Trace 应只记录关联 ID、状态、错误码与耗时等最小可观测信息，避免写入敏感参数或大结果。
