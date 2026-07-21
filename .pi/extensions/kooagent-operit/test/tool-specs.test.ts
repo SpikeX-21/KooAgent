@@ -58,6 +58,25 @@ test("UI tools keep their Operit names and required arguments", () => {
 	assert.equal(byName.has("android_run_ui_subagent"), false);
 });
 
+test("every Android tool has a permission description that hides sensitive text", () => {
+	assert.equal(OPERIT_TOOL_SPECS.length, 27);
+	for (const spec of OPERIT_TOOL_SPECS) {
+		assert.equal(typeof spec.permission.describe, "function", spec.localName);
+	}
+
+	const inputText = byName("android_set_input_text").permission.describe({
+		text: "super-secret-password",
+	});
+	assert.match(inputText, /characters; text hidden/i);
+	assert.doesNotMatch(inputText, /super-secret-password/);
+
+	const visitedUrl = byName("android_visit_web").permission.describe({
+		url: "https://example.com/private?token=super-secret-token",
+	});
+	assert.match(visitedUrl, /https:\/\/example\.com\/private/);
+	assert.doesNotMatch(visitedUrl, /super-secret-token/);
+});
+
 function requiredNames(
 	spec: (typeof OPERIT_TOOL_SPECS)[number] | undefined,
 ): string[] {
@@ -66,4 +85,10 @@ function requiredNames(
 			.filter((parameter) => parameter.required)
 			.map((parameter) => parameter.name) ?? []
 	);
+}
+
+function byName(name: string): (typeof OPERIT_TOOL_SPECS)[number] {
+	const spec = OPERIT_TOOL_SPECS.find((candidate) => candidate.localName === name);
+	assert.ok(spec, name);
+	return spec;
 }

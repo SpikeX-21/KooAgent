@@ -3,10 +3,14 @@ import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { type TSchema, Type } from "typebox";
 import { callOperitTool, getOperitHealth, loadOperitConfig } from "./client.ts";
 import { executeWithTransportRetry } from "./execution-policy.ts";
+import { manageOperitPermissions } from "./permission-command.ts";
+import { PermissionGate } from "./permission-gate.ts";
+import { FilePermissionStore } from "./permission-store.ts";
+import type { PermissionPromptChoice } from "./permission-types.ts";
 import type { JsonValue, OperitRemoteToolRequest } from "./protocol.ts";
 import { createAgentToolResult, isOperitToolDetails } from "./result-mapper.ts";
 import { OPERIT_TOOL_SPECS, type OperitParameterSpec } from "./tool-specs.ts";
-import { writeOperitTrace } from "./trace-writer.ts";
+import { writeOperitPermissionTrace, writeOperitTrace } from "./trace-writer.ts";
 
 interface RunTraceState {
 	runId: string;
@@ -17,6 +21,72 @@ interface RunTraceState {
 
 export default function kooagentOperitExtension(pi: ExtensionAPI) {
 	let traceState = createRunTraceState();
+	const specsByLocalName = new Map(
+		OPERIT_TOOL_SPECS.map((spec) => [spec.localName, spec]),
+	);
+	const permissionGate = new PermissionGate({
+		store: new FilePermissionStore({
+			knownToolNames: new Set(specsByLocalName.keys()),
+		}),
+		permissionSpecs: new Map(
+			OPERIT_TOOL_SPECS.map((spec) => [spec.localName, spec.permission]),
+		),
+	});
+
+	pi.on("tool_call", async (event, ctx) => {
+		const spec = specsByLocalName.get(event.toolName);
+		if (!spec) {
+			if (!event.toolName.startsWith("android_")) return undefined;
+			return {
+				block: true,
+				reason: `[ANDROID_PERMISSION_DENIED] Unknown Android tool: ${event.toolName}`,
+			};
+		}
+
+		const decision = await permissionGate.authorize({
+			cwd: ctx.cwd,
+			toolCallId: event.toolCallId,
+			toolName: event.toolName,
+			input: event.input,
+			hasUI: ctx.hasUI,
+			signal: ctx.signal,
+			prompt: {
+				choose: async (title, message) => {
+					const choice = await ctx.ui.select(`${title}\n\n${message}`, [
+						"Allow once",
+						"Always allow",
+						"Deny",
+					]);
+					return toPermissionPromptChoice(choice);
+				},
+				warn: (message) => ctx.ui.notify(message, "warning"),
+			},
+		});
+		await writeOperitPermissionTrace(process.env.OPERIT_TRACE_FILE, {
+			traceId: traceState.traceId,
+			runId: traceState.runId,
+			turnIndex: traceState.turnIndex,
+			sessionId: ctx.sessionManager.getSessionId(),
+			toolCallId: event.toolCallId,
+			toolName: event.toolName,
+			decision: decision.allowed ? "allow" : "deny",
+			...(decision.effectiveLevel
+				? { effectiveLevel: decision.effectiveLevel }
+				: {}),
+			...(decision.allowed
+				? { source: decision.source }
+				: { reason: decision.reason }),
+		});
+		if (decision.allowed) return undefined;
+		return {
+			block: true,
+			reason: [
+				"[ANDROID_PERMISSION_DENIED]",
+				`tool=${event.toolName}`,
+				`reason=${decision.reason}`,
+			].join("\n"),
+		};
+	});
 
 	for (const spec of OPERIT_TOOL_SPECS) {
 		const parameters = createParametersSchema(spec.parameters);
@@ -33,6 +103,11 @@ export default function kooagentOperitExtension(pi: ExtensionAPI) {
 			parameters,
 			executionMode: policy.executionMode,
 			async execute(toolCallId, params, signal, _onUpdate, ctx) {
+				if (!permissionGate.consume(toolCallId)) {
+					throw new Error(
+						`[ANDROID_PERMISSION_STATE_MISSING] ${spec.localName} was not authorized by the Pi tool_call hook`,
+					);
+				}
 				const config = loadOperitConfig();
 				const request: OperitRemoteToolRequest = {
 					protocolVersion: 2,
@@ -96,6 +171,17 @@ export default function kooagentOperitExtension(pi: ExtensionAPI) {
 		},
 	});
 
+	pi.registerCommand("operit-permissions", {
+		description: "View and manage Pi permissions for Operit Android tools",
+		handler: async (_args, ctx) => {
+			await manageOperitPermissions(
+				ctx,
+				OPERIT_TOOL_SPECS.map((spec) => spec.localName),
+				permissionGate,
+			);
+		},
+	});
+
 	pi.on("session_start", (_event, ctx) => {
 		ctx.ui.setStatus(
 			"kooagent-operit",
@@ -112,8 +198,24 @@ export default function kooagentOperitExtension(pi: ExtensionAPI) {
 	});
 
 	pi.on("session_shutdown", (_event, ctx) => {
+		permissionGate.clearSession();
 		ctx.ui.setStatus("kooagent-operit", undefined);
 	});
+}
+
+function toPermissionPromptChoice(
+	choice: string | undefined,
+): PermissionPromptChoice | undefined {
+	switch (choice) {
+		case "Allow once":
+			return "allow-once";
+		case "Always allow":
+			return "always-allow";
+		case "Deny":
+			return "deny";
+		default:
+			return undefined;
+	}
 }
 
 function createRunTraceState(): RunTraceState {

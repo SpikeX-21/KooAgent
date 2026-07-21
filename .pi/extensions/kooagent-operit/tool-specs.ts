@@ -7,6 +7,7 @@ import {
 	WRITE_KEYED,
 	WRITE_UNSAFE,
 } from "./execution-policy.ts";
+import type { OperitPermissionSpec } from "./permission-types.ts";
 
 export type OperitParameterKind = "string" | "integer" | "number" | "boolean";
 
@@ -23,7 +24,10 @@ export interface OperitToolSpec {
 	description: string;
 	parameters: OperitParameterSpec[];
 	policy: OperitToolExecutionPolicy;
+	permission: OperitPermissionSpec;
 }
+
+type OperitToolSpecDefinition = Omit<OperitToolSpec, "permission">;
 
 const parameter = (
 	name: string,
@@ -32,7 +36,7 @@ const parameter = (
 	required = false,
 ): OperitParameterSpec => ({ name, kind, description, required });
 
-export const OPERIT_TOOL_SPECS: OperitToolSpec[] = [
+const OPERIT_TOOL_SPEC_DEFINITIONS: OperitToolSpecDefinition[] = [
 	{
 		localName: "android_list_installed_apps",
 		remoteName: "list_installed_apps",
@@ -600,3 +604,106 @@ export const OPERIT_TOOL_SPECS: OperitToolSpec[] = [
 		],
 	},
 ];
+
+export const OPERIT_TOOL_SPECS: OperitToolSpec[] =
+	OPERIT_TOOL_SPEC_DEFINITIONS.map((spec) => ({
+		...spec,
+		permission: { describe: (input) => describePermission(spec.localName, input) },
+	}));
+
+function describePermission(
+	toolName: string,
+	input: Record<string, unknown>,
+): string {
+	switch (toolName) {
+		case "android_list_installed_apps":
+			return "Read the list of installed third-party Android apps.";
+		case "android_start_app":
+			return `Launch Android app ${formatValue(input.package_name)}.`;
+		case "android_capture_screenshot":
+			return "Capture the current Android screen.";
+		case "android_get_page_info":
+			return `Read current Android page information (${formatFields(input, ["format", "detail", "display"])}).`;
+		case "android_tap":
+		case "android_long_press":
+			return `${toolName === "android_tap" ? "Tap" : "Long press"} ${formatFields(input, ["x", "y", "display"])}.`;
+		case "android_swipe":
+			return `Swipe ${formatFields(input, ["start_x", "start_y", "end_x", "end_y", "duration", "display"])}.`;
+		case "android_click_element":
+			return `Click an Android UI element (${formatFields(input, ["resourceId", "className", "contentDesc", "bounds", "index", "display"])}).`;
+		case "android_set_input_text":
+			return `Enter text into the focused Android field (${textLength(input.text)} characters; text hidden).`;
+		case "android_press_key":
+			return `Send Android key ${formatValue(input.key_code)}.`;
+		case "android_sleep":
+			return `Wait ${formatValue(input.duration_ms)} milliseconds on Android.`;
+		case "android_use_package":
+			return `Activate Operit package ${formatValue(input.package_name)}.`;
+		case "android_list_files":
+			return `List files at ${formatFields(input, ["path", "environment"])}.`;
+		case "android_read_file":
+			return `Read file ${formatFields(input, ["path", "environment"])}; file content is hidden.`;
+		case "android_read_file_part":
+			return `Read file range ${formatFields(input, ["path", "start_line", "end_line", "environment"])}; file content is hidden.`;
+		case "android_apply_file":
+			return `Apply a file operation at ${formatFields(input, ["path", "type", "environment"])}; content is hidden.`;
+		case "android_create_file":
+			return `Create file ${formatFields(input, ["path", "environment"])}; content is hidden.`;
+		case "android_edit_file":
+			return `Edit file ${formatFields(input, ["path", "environment"])}; content is hidden.`;
+		case "android_delete_file":
+			return `Delete ${formatFields(input, ["path", "environment", "recursive"])}.`;
+		case "android_make_directory":
+			return `Create directory ${formatFields(input, ["path", "environment", "create_parents"])}.`;
+		case "android_find_files":
+			return `Find files at ${formatFields(input, ["path", "environment", "pattern", "max_depth"])}.`;
+		case "android_grep_code":
+			return `Search code at ${formatFields(input, ["path", "environment", "file_pattern", "max_results"])}; pattern is hidden.`;
+		case "android_grep_context":
+			return `Search code context at ${formatFields(input, ["path", "environment", "file_pattern", "max_results"])}; intent is hidden.`;
+		case "android_visit_web":
+			return `Visit ${formatUrl(input.url)}.`;
+		case "android_download_file":
+			return `Download from ${formatUrl(input.url)} to ${formatValue(input.destination)}.`;
+		case "android_query_memory":
+			return `Query Operit memory (${textLength(input.query)} characters; query hidden).`;
+		case "android_get_memory_by_title":
+			return `Read Operit memory ${formatValue(input.title)}.`;
+		default:
+			return `Execute Android tool ${toolName}.`;
+	}
+}
+
+function formatFields(input: Record<string, unknown>, names: string[]): string {
+	const fields = names
+		.filter((name) => input[name] !== undefined)
+		.map((name) => `${name}=${formatValue(input[name])}`);
+	return fields.length > 0 ? fields.join(", ") : "default parameters";
+}
+
+function formatValue(value: unknown): string {
+	if (typeof value === "string") return truncate(value);
+	if (typeof value === "number" || typeof value === "boolean") return String(value);
+	return "unspecified";
+}
+
+function textLength(value: unknown): number {
+	return typeof value === "string" ? value.length : 0;
+}
+
+function formatUrl(value: unknown): string {
+	if (typeof value !== "string" || value.length === 0) return "a previous Operit visit";
+	try {
+		const url = new URL(value);
+		return truncate(`${url.protocol}//${url.host}${url.pathname}`);
+	} catch {
+		return "a requested URL";
+	}
+}
+
+function truncate(value: string): string {
+	const maximumLength = 120;
+	return value.length <= maximumLength
+		? value
+		: `${value.slice(0, maximumLength - 1)}…`;
+}

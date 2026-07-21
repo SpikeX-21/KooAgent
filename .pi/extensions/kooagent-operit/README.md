@@ -51,6 +51,35 @@ Use the following command inside Pi to check connectivity without asking the mod
 /operit-status
 ```
 
+## Permissions
+
+Permissions are enforced only by this Pi extension before a request reaches
+Operit. The Android HTTP runtime remains a remote executor and does not repeat
+the Pi permission prompt.
+
+New projects default every one of the 27 `android_*` tools to `ASK`. In an
+interactive Pi session, each request offers:
+
+- `Allow once` — permit the current tool call only.
+- `Always allow` — persist an ALLOW override for this tool in the current
+  project.
+- `Deny` — reject the current tool call.
+
+ASK fails closed in non-interactive Pi modes. Unknown `android_*` tools also
+fail closed. The persistent, per-project rules are stored outside the
+repository at:
+
+```text
+~/.pi/agent/kooagent-operit/permissions.json
+```
+
+Use the following command in Pi to view or change the global default and
+single-tool overrides:
+
+```text
+/operit-permissions
+```
+
 ## Design
 
 - Pi tool names keep the `android_` prefix.
@@ -76,6 +105,8 @@ Use the following command inside Pi to check connectivity without asking the mod
   never retried automatically.
 - Set `OPERIT_TRACE_FILE` to write bounded JSONL completion traces. Tool
   arguments and large result data are not written to this trace.
+- Permission decisions are added to that trace without tool arguments or
+  operation summaries.
 
 ## Tests
 
