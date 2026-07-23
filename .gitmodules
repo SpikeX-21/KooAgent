@@ -28,3 +28,6 @@
 [submodule "Operit/fbx/third_party/ufbx"]
 	path = Operit/fbx/third_party/ufbx
 	url = https://github.com/ufbx/ufbx.git
+[submodule "pi"]
+	path = pi
+	url = git@github.com:SpikeX-21/pi.git
