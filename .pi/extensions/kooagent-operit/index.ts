@@ -9,8 +9,15 @@ import { FilePermissionStore } from "./permission-store.ts";
 import type { PermissionPromptChoice } from "./permission-types.ts";
 import type { JsonValue, OperitRemoteToolRequest } from "./protocol.ts";
 import { createAgentToolResult, isOperitToolDetails } from "./result-mapper.ts";
+import {
+	createOperitToolPromptGuidelines,
+	createOperitToolPromptSnippet,
+} from "./tool-prompt.ts";
 import { OPERIT_TOOL_SPECS, type OperitParameterSpec } from "./tool-specs.ts";
-import { writeOperitPermissionTrace, writeOperitTrace } from "./trace-writer.ts";
+import {
+	writeOperitPermissionTrace,
+	writeOperitTrace,
+} from "./trace-writer.ts";
 
 interface RunTraceState {
 	runId: string;
@@ -95,11 +102,8 @@ export default function kooagentOperitExtension(pi: ExtensionAPI) {
 			name: spec.localName,
 			label: spec.localName,
 			description: spec.description,
-			promptSnippet: `${spec.localName}: ${spec.description}`,
-			promptGuidelines: [
-				"Use Android tools only when the task requires the connected Operit device runtime.",
-				"Inspect Android state again after UI-changing actions instead of assuming the action succeeded.",
-			],
+			promptSnippet: createOperitToolPromptSnippet(policy),
+			promptGuidelines: createOperitToolPromptGuidelines(policy),
 			parameters,
 			executionMode: policy.executionMode,
 			async execute(toolCallId, params, signal, _onUpdate, ctx) {
