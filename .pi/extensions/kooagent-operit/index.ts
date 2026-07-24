@@ -9,10 +9,7 @@ import { FilePermissionStore } from "./permission-store.ts";
 import type { PermissionPromptChoice } from "./permission-types.ts";
 import type { JsonValue, OperitRemoteToolRequest } from "./protocol.ts";
 import { createAgentToolResult, isOperitToolDetails } from "./result-mapper.ts";
-import {
-	createOperitToolPromptGuidelines,
-	createOperitToolPromptSnippet,
-} from "./tool-prompt.ts";
+import { createOperitToolPromptGuidelines } from "./tool-prompt.ts";
 import { OPERIT_TOOL_SPECS, type OperitParameterSpec } from "./tool-specs.ts";
 import {
 	writeOperitPermissionTrace,
@@ -102,7 +99,7 @@ export default function kooagentOperitExtension(pi: ExtensionAPI) {
 			name: spec.localName,
 			label: spec.localName,
 			description: spec.description,
-			promptSnippet: createOperitToolPromptSnippet(policy),
+			promptSnippet: spec.promptSnippet,
 			promptGuidelines: createOperitToolPromptGuidelines(policy),
 			parameters,
 			executionMode: policy.executionMode,

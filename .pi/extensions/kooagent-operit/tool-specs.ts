@@ -22,6 +22,7 @@ export interface OperitToolSpec {
 	localName: string;
 	remoteName: string;
 	description: string;
+	promptSnippet: string;
 	parameters: OperitParameterSpec[];
 	policy: OperitToolExecutionPolicy;
 	permission: OperitPermissionSpec;
@@ -42,6 +43,7 @@ const OPERIT_TOOL_SPEC_DEFINITIONS: OperitToolSpecDefinition[] = [
 		remoteName: "list_installed_apps",
 		policy: READ_PARALLEL,
 		description: "List installed third-party Android apps through Operit.",
+		promptSnippet: "List installed third-party Android apps",
 		parameters: [],
 	},
 	{
@@ -50,6 +52,7 @@ const OPERIT_TOOL_SPEC_DEFINITIONS: OperitToolSpecDefinition[] = [
 		policy: WRITE_UNSAFE,
 		description:
 			"Launch an installed Android app by package name through Operit.",
+		promptSnippet: "Launch an Android app by package name",
 		parameters: [
 			parameter(
 				"package_name",
@@ -65,6 +68,7 @@ const OPERIT_TOOL_SPEC_DEFINITIONS: OperitToolSpecDefinition[] = [
 		policy: READ_DEVICE_STATE,
 		description:
 			"Capture the current Android screen through Operit and return the screenshot path.",
+		promptSnippet: "Capture the current Android screen",
 		parameters: [],
 	},
 	{
@@ -73,6 +77,7 @@ const OPERIT_TOOL_SPEC_DEFINITIONS: OperitToolSpecDefinition[] = [
 		policy: READ_DEVICE_STATE,
 		description:
 			"Get current Android page/window UI information through Operit.",
+		promptSnippet: "Inspect the current Android page and UI tree",
 		parameters: [
 			parameter(
 				"format",
@@ -96,6 +101,7 @@ const OPERIT_TOOL_SPEC_DEFINITIONS: OperitToolSpecDefinition[] = [
 		remoteName: "tap",
 		policy: WRITE_UNSAFE,
 		description: "Tap a point on the Android screen through Operit.",
+		promptSnippet: "Tap an Android screen coordinate",
 		parameters: [
 			parameter("x", "integer", "X coordinate in screen pixels", true),
 			parameter("y", "integer", "Y coordinate in screen pixels", true),
@@ -111,6 +117,7 @@ const OPERIT_TOOL_SPEC_DEFINITIONS: OperitToolSpecDefinition[] = [
 		remoteName: "long_press",
 		policy: WRITE_UNSAFE,
 		description: "Long press a point on the Android screen through Operit.",
+		promptSnippet: "Long-press an Android screen coordinate",
 		parameters: [
 			parameter("x", "integer", "X coordinate in screen pixels", true),
 			parameter("y", "integer", "Y coordinate in screen pixels", true),
@@ -127,6 +134,7 @@ const OPERIT_TOOL_SPEC_DEFINITIONS: OperitToolSpecDefinition[] = [
 		policy: WRITE_UNSAFE,
 		description:
 			"Swipe from one Android screen coordinate to another through Operit.",
+		promptSnippet: "Swipe between Android screen coordinates",
 		parameters: [
 			parameter(
 				"start_x",
@@ -160,6 +168,7 @@ const OPERIT_TOOL_SPEC_DEFINITIONS: OperitToolSpecDefinition[] = [
 		policy: WRITE_UNSAFE,
 		description:
 			"Click an Android UI element by resource id, class name, content description, or bounds through Operit.",
+		promptSnippet: "Click an Android UI element by selector",
 		parameters: [
 			parameter(
 				"resourceId",
@@ -192,6 +201,7 @@ const OPERIT_TOOL_SPEC_DEFINITIONS: OperitToolSpecDefinition[] = [
 		policy: WRITE_UNSAFE,
 		description:
 			"Set text into the currently focused Android input field through Operit.",
+		promptSnippet: "Enter text into the focused Android field",
 		parameters: [
 			parameter(
 				"text",
@@ -212,6 +222,7 @@ const OPERIT_TOOL_SPEC_DEFINITIONS: OperitToolSpecDefinition[] = [
 		policy: WRITE_UNSAFE,
 		description:
 			"Press an Android key code through Operit, for example KEYCODE_BACK.",
+		promptSnippet: "Send an Android key event",
 		parameters: [
 			parameter(
 				"key_code",
@@ -231,6 +242,7 @@ const OPERIT_TOOL_SPEC_DEFINITIONS: OperitToolSpecDefinition[] = [
 		remoteName: "sleep",
 		policy: READ_DEVICE_STATE,
 		description: "Pause briefly on the Android runtime.",
+		promptSnippet: "Wait briefly for Android state to settle",
 		parameters: [
 			parameter(
 				"duration_ms",
@@ -245,6 +257,7 @@ const OPERIT_TOOL_SPEC_DEFINITIONS: OperitToolSpecDefinition[] = [
 		policy: WRITE_KEYED,
 		description:
 			"Activate an Operit dynamic package for this Android runtime session.",
+		promptSnippet: "Activate an Operit runtime package",
 		parameters: [
 			parameter(
 				"package_name",
@@ -260,6 +273,7 @@ const OPERIT_TOOL_SPEC_DEFINITIONS: OperitToolSpecDefinition[] = [
 		policy: READ_PARALLEL,
 		description:
 			"List files in an Android, Linux, or repository path through Operit.",
+		promptSnippet: "List files across Android, Linux, or repo paths",
 		parameters: [
 			parameter(
 				"path",
@@ -280,6 +294,7 @@ const OPERIT_TOOL_SPEC_DEFINITIONS: OperitToolSpecDefinition[] = [
 		policy: READ_PARALLEL,
 		description:
 			"Read a file through Operit; image files may be OCR-extracted by Operit.",
+		promptSnippet: "Read a file or inspect media content",
 		parameters: [
 			parameter("path", "string", "File path", true),
 			parameter(
@@ -314,6 +329,7 @@ const OPERIT_TOOL_SPEC_DEFINITIONS: OperitToolSpecDefinition[] = [
 		remoteName: "read_file_part",
 		policy: READ_PARALLEL,
 		description: "Read an inclusive line range from a file through Operit.",
+		promptSnippet: "Read a selected line range from a file",
 		parameters: [
 			parameter("path", "string", "File path", true),
 			parameter(
@@ -335,6 +351,7 @@ const OPERIT_TOOL_SPEC_DEFINITIONS: OperitToolSpecDefinition[] = [
 		policy: WRITE_KEYED,
 		description:
 			"Apply a create, replace, or delete style file operation through Operit.",
+		promptSnippet: "Apply a create, replace, or delete file operation",
 		parameters: [
 			parameter("path", "string", "File path", true),
 			parameter(
@@ -356,6 +373,7 @@ const OPERIT_TOOL_SPEC_DEFINITIONS: OperitToolSpecDefinition[] = [
 		remoteName: "create_file",
 		policy: WRITE_KEYED,
 		description: "Create a file through Operit.",
+		promptSnippet: "Create a file with complete content",
 		parameters: [
 			parameter("path", "string", "File path", true),
 			parameter("new", "string", "Complete file content", true),
@@ -371,6 +389,7 @@ const OPERIT_TOOL_SPEC_DEFINITIONS: OperitToolSpecDefinition[] = [
 		remoteName: "edit_file",
 		policy: WRITE_KEYED,
 		description: "Edit a file by exact text replacement through Operit.",
+		promptSnippet: "Replace exact text in a file",
 		parameters: [
 			parameter("path", "string", "File path", true),
 			parameter("old", "string", "Exact content to match", true),
@@ -387,6 +406,7 @@ const OPERIT_TOOL_SPEC_DEFINITIONS: OperitToolSpecDefinition[] = [
 		remoteName: "delete_file",
 		policy: WRITE_UNSAFE,
 		description: "Delete a file or directory through Operit.",
+		promptSnippet: "Delete a file or directory",
 		parameters: [
 			parameter("path", "string", "Target path", true),
 			parameter(
@@ -402,6 +422,7 @@ const OPERIT_TOOL_SPEC_DEFINITIONS: OperitToolSpecDefinition[] = [
 		remoteName: "make_directory",
 		policy: WRITE_KEYED,
 		description: "Create a directory through Operit.",
+		promptSnippet: "Create a directory and optional parent directories",
 		parameters: [
 			parameter("path", "string", "Directory path", true),
 			parameter(
@@ -421,6 +442,7 @@ const OPERIT_TOOL_SPEC_DEFINITIONS: OperitToolSpecDefinition[] = [
 		remoteName: "find_files",
 		policy: READ_PARALLEL,
 		description: "Find files matching a pattern through Operit.",
+		promptSnippet: "Find files by pattern",
 		parameters: [
 			parameter("path", "string", "Search path", true),
 			parameter(
@@ -451,6 +473,7 @@ const OPERIT_TOOL_SPEC_DEFINITIONS: OperitToolSpecDefinition[] = [
 		remoteName: "grep_code",
 		policy: READ_PARALLEL,
 		description: "Search code with a regular expression through Operit.",
+		promptSnippet: "Search code with a regular expression",
 		parameters: [
 			parameter("path", "string", "Search path", true),
 			parameter(
@@ -475,6 +498,7 @@ const OPERIT_TOOL_SPEC_DEFINITIONS: OperitToolSpecDefinition[] = [
 		policy: READ_PARALLEL,
 		description:
 			"Search relevant files or code segments by intent through Operit.",
+		promptSnippet: "Search code or files by intent",
 		parameters: [
 			parameter("path", "string", "Directory or file path", true),
 			parameter(
@@ -497,6 +521,7 @@ const OPERIT_TOOL_SPEC_DEFINITIONS: OperitToolSpecDefinition[] = [
 		policy: EXTERNAL_READ,
 		description:
 			"Visit a webpage and extract readable information through Operit.",
+		promptSnippet: "Visit a webpage or follow an extracted link",
 		parameters: [
 			parameter("url", "string", "Webpage URL"),
 			parameter(
@@ -532,6 +557,7 @@ const OPERIT_TOOL_SPEC_DEFINITIONS: OperitToolSpecDefinition[] = [
 		remoteName: "download_file",
 		policy: EXTERNAL_WRITE,
 		description: "Download a file through Operit.",
+		promptSnippet: "Download a file to a destination path",
 		parameters: [
 			parameter("url", "string", "File URL"),
 			parameter(
@@ -567,6 +593,7 @@ const OPERIT_TOOL_SPEC_DEFINITIONS: OperitToolSpecDefinition[] = [
 		remoteName: "query_memory",
 		policy: READ_PARALLEL,
 		description: "Search the Operit memory library.",
+		promptSnippet: "Reserved legacy lookup; do not use for KooAgent memory",
 		parameters: [
 			parameter(
 				"query",
@@ -595,6 +622,7 @@ const OPERIT_TOOL_SPEC_DEFINITIONS: OperitToolSpecDefinition[] = [
 		remoteName: "get_memory_by_title",
 		policy: READ_PARALLEL,
 		description: "Read an Operit memory by exact title.",
+		promptSnippet: "Reserved legacy read; do not use for KooAgent memory",
 		parameters: [
 			parameter("title", "string", "Exact memory title", true),
 			parameter("chunk_index", "integer", "Specific chunk number"),
@@ -608,7 +636,9 @@ const OPERIT_TOOL_SPEC_DEFINITIONS: OperitToolSpecDefinition[] = [
 export const OPERIT_TOOL_SPECS: OperitToolSpec[] =
 	OPERIT_TOOL_SPEC_DEFINITIONS.map((spec) => ({
 		...spec,
-		permission: { describe: (input) => describePermission(spec.localName, input) },
+		permission: {
+			describe: (input) => describePermission(spec.localName, input),
+		},
 	}));
 
 function describePermission(
@@ -683,7 +713,8 @@ function formatFields(input: Record<string, unknown>, names: string[]): string {
 
 function formatValue(value: unknown): string {
 	if (typeof value === "string") return truncate(value);
-	if (typeof value === "number" || typeof value === "boolean") return String(value);
+	if (typeof value === "number" || typeof value === "boolean")
+		return String(value);
 	return "unspecified";
 }
 
@@ -692,7 +723,8 @@ function textLength(value: unknown): number {
 }
 
 function formatUrl(value: unknown): string {
-	if (typeof value !== "string" || value.length === 0) return "a previous Operit visit";
+	if (typeof value !== "string" || value.length === 0)
+		return "a previous Operit visit";
 	try {
 		const url = new URL(value);
 		return truncate(`${url.protocol}//${url.host}${url.pathname}`);
